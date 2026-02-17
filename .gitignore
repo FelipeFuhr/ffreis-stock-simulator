@@ -34,6 +34,10 @@ env/
 htmlcov/
 coverage.xml
 
+# Generated gRPC stubs (generated on demand)
+src/stocksim_grpc/*_pb2.py
+src/stocksim_grpc/*_pb2_grpc.py
+
 # Build artifacts
 build/
 dist/

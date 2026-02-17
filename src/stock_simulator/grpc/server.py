@@ -1,8 +1,10 @@
 from __future__ import annotations
 
 import argparse
+import importlib
 import os
 from concurrent import futures
+from types import ModuleType
 from typing import Any, cast
 
 import grpc
@@ -10,16 +12,40 @@ import numpy as np
 import pandas as pd
 from numpy.typing import NDArray
 
-from stocksim_grpc import engine_pb2 as _engine_pb2
-from stocksim_grpc import engine_pb2_grpc as _engine_pb2_grpc
-
 from ..config import GameConfig
 from ..data import MarketData
 from ..env import MarketEnv
 from ..types import EnvState, Observation
 
-engine_pb2: Any = cast(Any, _engine_pb2)
-engine_pb2_grpc: Any = cast(Any, _engine_pb2_grpc)
+
+def _load_grpc_module(module_name: str) -> ModuleType | None:
+    """Load generated grpc module by name when present."""
+    try:
+        return importlib.import_module(module_name)
+    except ModuleNotFoundError:
+        return None
+
+
+engine_pb2 = _load_grpc_module("stocksim_grpc.engine_pb2")
+engine_pb2_grpc = _load_grpc_module("stocksim_grpc.engine_pb2_grpc")
+
+
+def _require_engine_pb2() -> ModuleType:
+    """Return generated protobuf messages module or raise actionable error."""
+    if engine_pb2 is None:
+        raise RuntimeError(
+            "gRPC protobuf messages are unavailable. Run ./scripts/generate_grpc_stubs.sh first."
+        )
+    return engine_pb2
+
+
+def _require_engine_pb2_grpc() -> ModuleType:
+    """Return generated grpc stubs module or raise actionable error."""
+    if engine_pb2_grpc is None:
+        raise RuntimeError(
+            "gRPC stubs are unavailable. Run ./scripts/generate_grpc_stubs.sh first."
+        )
+    return engine_pb2_grpc
 
 
 def _build_synthetic_market_data(bars: int = 1024, seed: int = 1234) -> MarketData:
@@ -54,8 +80,9 @@ def _load_market_data() -> MarketData:
 
 
 def _observation_to_proto(observation: Observation) -> Any:
-    return engine_pb2.Observation(
-        market_window_handle=engine_pb2.MarketWindowViewHandle(
+    pb2 = cast(Any, _require_engine_pb2())
+    return pb2.Observation(
+        market_window_handle=pb2.MarketWindowViewHandle(
             start=observation.market.start,
             end=observation.market.end,
             t=observation.market.t,
@@ -68,7 +95,8 @@ def _observation_to_proto(observation: Observation) -> Any:
 
 
 def _state_to_proto(state: EnvState) -> Any:
-    return engine_pb2.EnvState(
+    pb2 = cast(Any, _require_engine_pb2())
+    return pb2.EnvState(
         t=state.t,
         cash=state.cash,
         units=state.units,
@@ -79,7 +107,7 @@ def _state_to_proto(state: EnvState) -> Any:
     )
 
 
-class EngineGrpcService(engine_pb2_grpc.EngineServiceServicer):
+class EngineGrpcService:
     def __init__(self, env: MarketEnv) -> None:
         self._env = env
 
@@ -87,28 +115,32 @@ class EngineGrpcService(engine_pb2_grpc.EngineServiceServicer):
         self, request: Any, context: grpc.ServicerContext
     ) -> Any:
         _ = (request, context)
-        return engine_pb2.PingResponse(status="pong")
+        pb2 = cast(Any, _require_engine_pb2())
+        return pb2.PingResponse(status="pong")
 
     def Reset(  # noqa: N802
         self, request: Any, context: grpc.ServicerContext
     ) -> Any:
         _ = context
+        pb2 = cast(Any, _require_engine_pb2())
         seed: int | None = int(request.seed) if request.has_seed else None
         state = self._env.reset(seed=seed)
-        return engine_pb2.ResetResponse(state=_state_to_proto(state))
+        return pb2.ResetResponse(state=_state_to_proto(state))
 
     def Observe(  # noqa: N802
         self, request: Any, context: grpc.ServicerContext
     ) -> Any:
         _ = (request, context)
+        pb2 = cast(Any, _require_engine_pb2())
         observation = self._env.observe()
-        return engine_pb2.ObserveResponse(observation=_observation_to_proto(observation))
+        return pb2.ObserveResponse(observation=_observation_to_proto(observation))
 
     def StepMany(  # noqa: N802
         self, request: Any, context: grpc.ServicerContext
     ) -> Any:
+        pb2 = cast(Any, _require_engine_pb2())
         if len(request.actions) == 0:
-            return engine_pb2.StepManyResponse()
+            return pb2.StepManyResponse()
 
         rows: list[list[float]] = []
         for action in request.actions:
@@ -134,8 +166,8 @@ class EngineGrpcService(engine_pb2_grpc.EngineServiceServicer):
         num_rows = int(rewards.shape[0])
         for i in range(num_rows):
             observation_rows.append(
-                engine_pb2.Observation(
-                    market_window_handle=engine_pb2.MarketWindowViewHandle(
+                pb2.Observation(
+                    market_window_handle=pb2.MarketWindowViewHandle(
                         start=int(observations["market_window_handle"][i, 0]),
                         end=int(observations["market_window_handle"][i, 1]),
                         t=int(observations["market_window_handle"][i, 2]),
@@ -146,7 +178,7 @@ class EngineGrpcService(engine_pb2_grpc.EngineServiceServicer):
                     done=bool(dones[i]),
                 )
             )
-        return engine_pb2.StepManyResponse(
+        return pb2.StepManyResponse(
             observations=observation_rows,
             rewards=rewards.tolist(),
             dones=dones.tolist(),
@@ -167,7 +199,8 @@ def create_server(
     env.reset(seed=config.seed)
 
     server = grpc.server(futures.ThreadPoolExecutor(max_workers=max_workers))
-    engine_pb2_grpc.add_EngineServiceServicer_to_server(EngineGrpcService(env), server)
+    pb2_grpc = cast(Any, _require_engine_pb2_grpc())
+    pb2_grpc.add_EngineServiceServicer_to_server(EngineGrpcService(env), server)
     server.add_insecure_port(f"{host}:{port}")
     return server
 

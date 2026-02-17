@@ -4,6 +4,7 @@ from collections.abc import Callable
 from typing import Any, cast
 
 import numpy as np
+import pytest
 from hypothesis import HealthCheck, given, settings
 from hypothesis import strategies as st
 from numpy.typing import NDArray
@@ -11,10 +12,14 @@ from numpy.typing import NDArray
 from stock_simulator.config import GameConfig
 from stock_simulator.data import MarketData
 from stock_simulator.env import MarketEnv
-from stock_simulator.grpc.server import EngineGrpcService
 from stock_simulator.server import create_app
 from stock_simulator.types import Action, EnvStateModel, ObservationModel
-from stocksim_grpc import engine_pb2 as _engine_pb2
+
+try:
+    from stock_simulator.grpc.server import EngineGrpcService
+    from stocksim_grpc import engine_pb2 as _engine_pb2
+except (ImportError, ModuleNotFoundError) as exc:
+    pytest.skip(f"grpc parity dependencies unavailable: {exc}", allow_module_level=True)
 
 engine_pb2: Any = cast(Any, _engine_pb2)
 

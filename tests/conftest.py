@@ -19,7 +19,11 @@ from numpy.typing import NDArray
 from stock_simulator.config import GameConfig
 from stock_simulator.data import MarketData
 from stock_simulator.types import Action
-from stocksim_grpc import engine_pb2 as _engine_pb2
+
+try:
+    from stocksim_grpc import engine_pb2 as _engine_pb2
+except (ImportError, ModuleNotFoundError):  # pragma: no cover
+    _engine_pb2 = None
 
 try:
     import grpc
@@ -139,8 +143,8 @@ def _wait_http_ready(url: str, timeout_seconds: float = 20.0) -> None:
 
 
 def _wait_grpc_ready(target: str, timeout_seconds: float = 20.0) -> None:
-    if grpc is None:
-        pytest.skip("grpcio is required for gRPC fixtures/tests")
+    if grpc is None or engine_pb2 is None:
+        pytest.skip("grpc stubs/runtime are required for gRPC fixtures/tests")
     deadline = time.time() + timeout_seconds
     last_error: Exception | None = None
     while time.time() < deadline:

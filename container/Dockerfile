@@ -13,10 +13,13 @@ WORKDIR /app
 COPY --from=uv /uv /usr/local/bin/uv
 
 COPY pyproject.toml uv.lock ./
+COPY proto ./proto
+COPY scripts ./scripts
 COPY src ./src
 COPY examples ./examples
 
 RUN uv venv "${VIRTUAL_ENV}" --python 3.13 \
+    && ./scripts/generate_grpc_stubs.sh \
     && uv sync --active --frozen --extra grpc
 
 CMD ["python", "-m", "stock_simulator.server"]

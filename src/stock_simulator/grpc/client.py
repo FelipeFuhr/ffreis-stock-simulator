@@ -1,32 +1,61 @@
 from __future__ import annotations
 
+import importlib
+from types import ModuleType
 from typing import Any, cast
 
 import grpc
 import numpy as np
 from numpy.typing import NDArray
 
-from stocksim_grpc import engine_pb2 as _engine_pb2
-from stocksim_grpc import engine_pb2_grpc as _engine_pb2_grpc
 
-engine_pb2: Any = cast(Any, _engine_pb2)
-engine_pb2_grpc: Any = cast(Any, _engine_pb2_grpc)
+def _load_grpc_module(module_name: str) -> ModuleType | None:
+    """Load generated grpc module by name when present."""
+    try:
+        return importlib.import_module(module_name)
+    except ModuleNotFoundError:
+        return None
+
+
+engine_pb2 = _load_grpc_module("stocksim_grpc.engine_pb2")
+engine_pb2_grpc = _load_grpc_module("stocksim_grpc.engine_pb2_grpc")
+
+
+def _require_engine_pb2() -> ModuleType:
+    """Return generated protobuf messages module or raise actionable error."""
+    if engine_pb2 is None:
+        raise RuntimeError(
+            "gRPC protobuf messages are unavailable. Run ./scripts/generate_grpc_stubs.sh first."
+        )
+    return engine_pb2
+
+
+def _require_engine_pb2_grpc() -> ModuleType:
+    """Return generated grpc stubs module or raise actionable error."""
+    if engine_pb2_grpc is None:
+        raise RuntimeError(
+            "gRPC stubs are unavailable. Run ./scripts/generate_grpc_stubs.sh first."
+        )
+    return engine_pb2_grpc
 
 
 class EngineGrpcClient:
     def __init__(self, *, target: str = "127.0.0.1:50051") -> None:
         self._channel = grpc.insecure_channel(target)
-        self._stub = engine_pb2_grpc.EngineServiceStub(self._channel)
+        pb2_grpc = cast(Any, _require_engine_pb2_grpc())
+        self._stub = pb2_grpc.EngineServiceStub(self._channel)
 
     def close(self) -> None:
         self._channel.close()
 
     def ping(self) -> str:
-        response = self._stub.Ping(engine_pb2.PingRequest())
+        pb2 = cast(Any, _require_engine_pb2())
+        response = self._stub.Ping(pb2.PingRequest())
         return str(response.status)
 
     def reset(self, seed: int | None = None) -> dict[str, float | int | bool]:
-        request = engine_pb2.ResetRequest(has_seed=seed is not None, seed=int(seed or 0))
+        pb2 = cast(Any, _require_engine_pb2())
+        request = pb2.ResetRequest(has_seed=seed is not None, seed=int(seed or 0))
         response = self._stub.Reset(request)
         state = response.state
         return {
@@ -40,7 +69,8 @@ class EngineGrpcClient:
         }
 
     def observe(self) -> dict[str, object]:
-        response = self._stub.Observe(engine_pb2.ObserveRequest())
+        pb2 = cast(Any, _require_engine_pb2())
+        response = self._stub.Observe(pb2.ObserveRequest())
         observation = response.observation
         return {
             "market_window_handle": {
@@ -57,10 +87,11 @@ class EngineGrpcClient:
     def step_many(
         self, actions: NDArray[np.float64]
     ) -> tuple[list[dict[str, object]], NDArray[np.float64], NDArray[np.bool_]]:
+        pb2 = cast(Any, _require_engine_pb2())
         encoded_actions = []
         for row in actions:
             encoded_actions.append(
-                engine_pb2.EncodedAction(
+                pb2.EncodedAction(
                     side_code=int(row[0]),
                     units=float(row[1]),
                     order_type_code=int(row[2]),
@@ -68,7 +99,7 @@ class EngineGrpcClient:
                     limit_price=0.0 if np.isnan(row[3]) else float(row[3]),
                 )
             )
-        response = self._stub.StepMany(engine_pb2.StepManyRequest(actions=encoded_actions))
+        response = self._stub.StepMany(pb2.StepManyRequest(actions=encoded_actions))
         obs: list[dict[str, object]] = []
         for row in response.observations:
             obs.append(

@@ -5,9 +5,14 @@ from typing import cast
 
 import grpc
 import numpy as np
+import pytest
 
-from stock_simulator.grpc.client import EngineGrpcClient
 from tests.conftest import RunningService
+
+try:
+    from stock_simulator.grpc.client import EngineGrpcClient
+except (ImportError, ModuleNotFoundError) as exc:
+    pytest.skip(f"grpc parity dependencies unavailable: {exc}", allow_module_level=True)
 
 
 def test_grpc_live_service_roundtrip(
