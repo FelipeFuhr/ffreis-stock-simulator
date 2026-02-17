@@ -11,7 +11,6 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, cast
 
-import grpc
 import numpy as np
 import pandas as pd
 import pytest
@@ -21,6 +20,11 @@ from stock_simulator.config import GameConfig
 from stock_simulator.data import MarketData
 from stock_simulator.types import Action
 from stocksim_grpc import engine_pb2 as _engine_pb2
+
+try:
+    import grpc
+except ModuleNotFoundError:  # pragma: no cover
+    grpc = None  # type: ignore[assignment]
 
 engine_pb2: Any = cast(Any, _engine_pb2)
 
@@ -135,6 +139,8 @@ def _wait_http_ready(url: str, timeout_seconds: float = 20.0) -> None:
 
 
 def _wait_grpc_ready(target: str, timeout_seconds: float = 20.0) -> None:
+    if grpc is None:
+        pytest.skip("grpcio is required for gRPC fixtures/tests")
     deadline = time.time() + timeout_seconds
     last_error: Exception | None = None
     while time.time() < deadline:

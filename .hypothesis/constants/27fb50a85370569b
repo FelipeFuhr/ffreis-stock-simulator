@@ -1,4 +1,0 @@
-# file: /home/ffreis/Documents/ffreis-model/1/ffreis-stock-simulator/src/stocksim_grpc/engine_pb2.py
-# hypothesis_version: 6.151.8
-
-[138, 140, 259, 261, 316, 318, 334, 336, 422, 425, 577, 579, 645, 647, 767, 769, 833, 835, 935, 938, 1237, '_ENCODEDACTION', '_ENGINESERVICE', '_ENVSTATE', '_OBSERVATION', '_OBSERVEREQUEST', '_OBSERVERESPONSE', '_PINGREQUEST', '_PINGRESPONSE', '_RESETREQUEST', '_RESETRESPONSE', '_STEPMANYREQUEST', '_STEPMANYRESPONSE']

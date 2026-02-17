@@ -1,4 +1,0 @@
-# file: /home/ffreis/Documents/ffreis-model/1/ffreis-stock-simulator/src/stock_simulator/types.py
-# hypothesis_version: 6.151.8
-
-[0.0, 1.0, 'buy', 'current_price', 'done', 'end', 'hold', 'limit', 'market', 'market_window_handle', 'order_summary_vector', 'portfolio_vector', 'sell', 'start', 't', 'units must be >= 0']

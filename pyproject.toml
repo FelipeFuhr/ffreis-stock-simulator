@@ -34,8 +34,8 @@ dev = [
     "types-PyYAML>=6.0.12.20241230",
 ]
 grpc = [
-    "grpcio>=1.66.0",
-    "protobuf>=5.27.0",
+    "grpcio>=1.78.0",
+    "protobuf>=6.31.1",
 ]
 
 [build-system]

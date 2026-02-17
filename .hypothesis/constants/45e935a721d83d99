@@ -1,4 +1,0 @@
-# file: /home/ffreis/Documents/ffreis-model/1/ffreis-stock-simulator/.venv/bin/pytest
-# hypothesis_version: 6.151.8
-
-['-script.pyw', '.exe', '__main__']

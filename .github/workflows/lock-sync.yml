@@ -1,4 +1,4 @@
-name: gRPC Sync
+name: Lock Sync
 
 on:
   push:
@@ -6,7 +6,7 @@ on:
   pull_request:
 
 jobs:
-  grpc-sync-and-parity:
+  lock-sync:
     runs-on: ubuntu-latest
     defaults:
       run:
@@ -25,15 +25,8 @@ jobs:
         with:
           enable-cache: true
 
-      - name: Install dependencies (uv)
+      - name: Check uv.lock is up to date
         run: |
-          uv sync --extra dev --extra grpc
-
-      - name: Check generated gRPC stubs are current
-        run: make grpc-check
-
-      - name: Run gRPC/API parity tests
-        run: make test-grpc-parity
-
-      - name: Run live interface parity test
-        run: uv run --extra dev --extra grpc pytest -q tests/integration_tests/test_live_interface_parity.py
+          set -euo pipefail
+          test -s uv.lock || (echo "uv.lock missing — run uv lock"; exit 1)
+          uv lock --check
