@@ -1,0 +1,55 @@
+services:
+  simulator-api:
+    build:
+      context: ..
+      dockerfile: container/Dockerfile
+    image: ffreis-stock-simulator:api-grpc-smoke
+    command:
+      - python
+      - -m
+      - stock_simulator.server
+    environment:
+      ENGINE_ENABLED: "false"
+      HOST: 0.0.0.0
+      PORT: "8000"
+    ports:
+      - "18000:8000"
+    healthcheck:
+      test:
+        - CMD
+        - python
+        - -c
+        - "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8000/healthz', timeout=3)"
+      interval: 3s
+      timeout: 3s
+      retries: 20
+
+  simulator-grpc:
+    image: ffreis-stock-simulator:api-grpc-smoke
+    command:
+      - python
+      - -m
+      - stock_simulator.grpc.server
+      - --host
+      - 0.0.0.0
+      - --port
+      - "50051"
+      - --seed
+      - "1234"
+      - --use-numba
+    ports:
+      - "15051:50051"
+
+  smoke:
+    image: ffreis-stock-simulator:api-grpc-smoke
+    depends_on:
+      simulator-api:
+        condition: service_healthy
+      simulator-grpc:
+        condition: service_started
+    command:
+      - python
+      - examples/smoke_api_grpc.py
+    environment:
+      SIM_API_BASE: http://simulator-api:8000
+      SIM_GRPC_TARGET: simulator-grpc:50051

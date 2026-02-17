@@ -1,0 +1,4 @@
+# file: /home/ffreis/Documents/ffreis-model/1/ffreis-stock-simulator/src/stock_simulator/grpc/server.py
+# hypothesis_version: 6.151.8
+
+[0.0001, 0.0002, 0.01, 1.0, 100.0, 10000.0, 100000.0, 1024, 1234, '--host', '--max-workers', '--port', '--seed', '--use-numba', '0.0.0.0', '1024', '1234', '2024-01-01', '50051', 'GRPC_HOST', 'GRPC_PORT', 'IPC_SYNTHETIC_BARS', 'IPC_SYNTHETIC_SEED', 'MARKET_DATA_CSV', '__main__', 'close', 'h', 'high', 'low', 'market_window_handle', 'open', 'order_summary_vector', 'pong', 'portfolio_vector', 'store_true', 'timestamp', 'volume']

@@ -1,0 +1,4 @@
+# file: /home/ffreis/Documents/ffreis-model/1/ffreis-stock-simulator/src/stock_simulator/recorder.py
+# hypothesis_version: 6.151.8
+
+['episode_id', 'equity', 'fills', 'leverage', 'limit_price', 'mergesort', 'order_type', 'price', 'records', 'seed', 'side', 'step', 'units']

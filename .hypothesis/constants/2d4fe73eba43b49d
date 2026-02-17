@@ -1,0 +1,4 @@
+# file: /home/ffreis/Documents/ffreis-model/1/ffreis-stock-simulator/src/stocksim_grpc/engine_pb2_grpc.py
+# hypothesis_version: 6.151.8
+
+['1.78.0', 'Observe', 'Ping', 'Reset', 'StepMany']

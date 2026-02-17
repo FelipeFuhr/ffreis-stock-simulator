@@ -1,0 +1,4 @@
+# file: /home/ffreis/Documents/ffreis-model/1/ffreis-stock-simulator/src/stock_simulator/config.py
+# hypothesis_version: 6.151.8
+
+[0.0, 0.25, 0.3, 1.0, 3.0, 4.0, 500.0, 100000.0, 1234, ',', '0', '1', ':', 'STOCK_SIM_', 'f', 'false', 'n', 'no', 'off', 'on', 't', 'true', 'utf-8', 'y', 'yes']

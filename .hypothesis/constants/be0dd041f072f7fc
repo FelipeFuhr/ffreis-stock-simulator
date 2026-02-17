@@ -1,0 +1,4 @@
+# file: /home/ffreis/Documents/ffreis-model/1/ffreis-stock-simulator/src/stock_simulator/core.py
+# hypothesis_version: 6.151.8
+
+[0.0, 10000.0, 'buy', 'hold', 'limit', 'sell']

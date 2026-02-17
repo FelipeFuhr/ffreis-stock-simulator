@@ -1,0 +1,4 @@
+# file: /home/ffreis/Documents/ffreis-model/1/ffreis-stock-simulator/src/stock_simulator/telemetry.py
+# hypothesis_version: 6.151.8
+
+['0.1.0', '1', 'OTEL_SERVICE_NAME', 'OTEL_SERVICE_VERSION', '_names_to_collectors', 'config_hash', 'count', 'env.step', 'episode_end', 'fill', 'final_equity', 'on', 'order', 'order_type', 'service.name', 'service.version', 'side', 'sim.action_side', 'sim.action_type', 'sim.config_hash', 'sim.use_numba', 'sim_config_info', 'sim_episodes_total', 'sim_equity', 'sim_equity_delta', 'sim_fills_total', 'sim_orders_total', 'sim_steps_total', 'steps', 'stock_simulator', 't', 'true', 'units', 'unset', 'use_numba', 'y', 'yes']

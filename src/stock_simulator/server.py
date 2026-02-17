@@ -1,0 +1,246 @@
+from __future__ import annotations
+
+import os
+from typing import Literal
+
+import numpy as np
+import uvicorn
+from fastapi import FastAPI, HTTPException, Response, status
+from numpy.typing import NDArray
+from prometheus_client import make_asgi_app
+from pydantic import BaseModel, ConfigDict
+
+from .config import GameConfig
+from .data import MarketData
+from .env import MarketEnv
+from .types import EnvStateModel, MarketWindowViewHandleModel, ObservationModel
+
+
+class HealthzResponse(BaseModel):
+    """Liveness response payload."""
+
+    model_config = ConfigDict(extra="forbid")
+    status: Literal["ok"]
+
+
+class ReadyzResponse(BaseModel):
+    """Readiness response payload."""
+
+    model_config = ConfigDict(extra="forbid")
+    status: Literal["ready", "not_ready"]
+    engine_enabled: bool
+    engine_ready: bool
+
+
+class ResetRequest(BaseModel):
+    """Reset request payload."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    seed: int | None = None
+
+
+class ResetResponse(BaseModel):
+    """Reset response payload."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    state: EnvStateModel
+
+
+class ObserveResponse(BaseModel):
+    """Observe response payload."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    observation: ObservationModel
+
+
+class EncodedActionModel(BaseModel):
+    """Transport model for encoded ``step_many`` action rows."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    side_code: int
+    units: float
+    order_type_code: int
+    has_limit_price: bool
+    limit_price: float | None = None
+
+
+class StepManyRequest(BaseModel):
+    """Step-many request payload."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    actions: list[EncodedActionModel]
+
+
+class StepManyResponse(BaseModel):
+    """Step-many response payload."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    observations: list[ObservationModel]
+    rewards: list[float]
+    dones: list[bool]
+
+
+class RuntimeState:
+    """Mutable process-local runtime state for the FastAPI service."""
+
+    def __init__(self) -> None:
+        self.engine_enabled = _as_bool(os.getenv("ENGINE_ENABLED"), default=True)
+        self.engine_ready = False
+        self.engine_error: str | None = None
+        self.env: MarketEnv | None = None
+
+
+def _as_bool(value: str | None, default: bool) -> bool:
+    """Parse a boolean-like environment variable value."""
+    if value is None:
+        return default
+    return value.strip().lower() in {"1", "true", "t", "yes", "y", "on"}
+
+
+def _load_engine() -> MarketEnv:
+    """Construct a simulator instance from environment configuration."""
+    market_data_csv = os.getenv("MARKET_DATA_CSV")
+    if not market_data_csv:
+        raise ValueError("MARKET_DATA_CSV must be set when ENGINE_ENABLED=true")
+    market_data = MarketData.from_csv(market_data_csv)
+    config_yaml = os.getenv("STOCK_SIM_CONFIG_YAML")
+    config = GameConfig.load(yaml_path=config_yaml)
+    return MarketEnv(data=market_data, cfg=config)
+
+
+def create_app() -> FastAPI:
+    """Create the HTTP service app with health/readiness and metrics endpoints."""
+    app = FastAPI(
+        title="Stock Simulator Service",
+        version="0.1.0",
+        description="Health/ready endpoints and Prometheus metrics endpoint.",
+    )
+    runtime = RuntimeState()
+    app.state.runtime = runtime
+
+    app.mount("/metrics", make_asgi_app())
+
+    @app.on_event("startup")
+    async def startup() -> None:
+        if not runtime.engine_enabled:
+            runtime.engine_ready = True
+            return
+        try:
+            runtime.env = _load_engine()
+            runtime.engine_ready = True
+        except Exception as exc:  # pragma: no cover
+            runtime.engine_ready = False
+            runtime.engine_error = str(exc)
+
+    def require_env() -> MarketEnv:
+        if runtime.env is None:
+            raise HTTPException(
+                status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+                detail="engine is not available",
+            )
+        return runtime.env
+
+    @app.get("/healthz", response_model=HealthzResponse)
+    async def healthz() -> HealthzResponse:
+        return HealthzResponse(status="ok")
+
+    @app.get("/readyz", response_model=ReadyzResponse)
+    async def readyz(response: Response) -> ReadyzResponse:
+        if not runtime.engine_ready:
+            response.status_code = status.HTTP_503_SERVICE_UNAVAILABLE
+            return ReadyzResponse(
+                status="not_ready",
+                engine_enabled=runtime.engine_enabled,
+                engine_ready=False,
+            )
+        return ReadyzResponse(
+            status="ready",
+            engine_enabled=runtime.engine_enabled,
+            engine_ready=True,
+        )
+
+    @app.post("/v1/reset", response_model=ResetResponse)
+    async def reset(payload: ResetRequest) -> ResetResponse:
+        env = require_env()
+        state = env.reset(seed=payload.seed)
+        return ResetResponse(state=EnvStateModel.from_dataclass(state))
+
+    @app.get("/v1/observe", response_model=ObserveResponse)
+    async def observe() -> ObserveResponse:
+        env = require_env()
+        observation = env.observe()
+        return ObserveResponse(observation=ObservationModel.from_dataclass(observation))
+
+    @app.post("/v1/step_many", response_model=StepManyResponse)
+    async def step_many(payload: StepManyRequest) -> StepManyResponse:
+        env = require_env()
+        if not payload.actions:
+            return StepManyResponse(observations=[], rewards=[], dones=[])
+
+        rows: list[list[float]] = []
+        for action in payload.actions:
+            limit_price = np.nan
+            if action.has_limit_price:
+                if action.limit_price is None:
+                    raise HTTPException(
+                        status_code=status.HTTP_400_BAD_REQUEST,
+                        detail="limit_price must be provided when has_limit_price=true",
+                    )
+                limit_price = float(action.limit_price)
+            rows.append(
+                [
+                    float(action.side_code),
+                    float(action.units),
+                    float(action.order_type_code),
+                    float(limit_price),
+                ]
+            )
+        actions_matrix: NDArray[np.float64] = np.asarray(rows, dtype=np.float64)
+        try:
+            observations, rewards, dones = env.step_many(actions_matrix)
+        except ValueError as exc:
+            raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc)) from exc
+
+        num_rows = int(rewards.shape[0])
+        observation_rows: list[ObservationModel] = []
+        for i in range(num_rows):
+            observation_rows.append(
+                ObservationModel(
+                    market_window_handle=MarketWindowViewHandleModel(
+                        start=int(observations["market_window_handle"][i, 0]),
+                        end=int(observations["market_window_handle"][i, 1]),
+                        t=int(observations["market_window_handle"][i, 2]),
+                        current_price=float(observations["market_window_handle"][i, 3]),
+                    ),
+                    portfolio_vector=observations["portfolio_vector"][i].tolist(),
+                    order_summary_vector=observations["order_summary_vector"][i].tolist(),
+                    done=bool(dones[i]),
+                )
+            )
+        return StepManyResponse(
+            observations=observation_rows,
+            rewards=rewards.tolist(),
+            dones=dones.tolist(),
+        )
+
+    return app
+
+
+app = create_app()
+
+
+def main() -> None:
+    """Run the ASGI server entrypoint."""
+    host = os.getenv("HOST", "0.0.0.0")
+    port = int(os.getenv("PORT", "8000"))
+    uvicorn.run("stock_simulator.server:app", host=host, port=port, reload=False)
+
+
+if __name__ == "__main__":
+    main()

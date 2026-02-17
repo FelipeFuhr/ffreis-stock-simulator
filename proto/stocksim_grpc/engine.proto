@@ -1,0 +1,73 @@
+syntax = "proto3";
+
+package stocksim.grpc;
+
+service EngineService {
+  rpc Ping(PingRequest) returns (PingResponse);
+  rpc Reset(ResetRequest) returns (ResetResponse);
+  rpc Observe(ObserveRequest) returns (ObserveResponse);
+  rpc StepMany(StepManyRequest) returns (StepManyResponse);
+}
+
+message PingRequest {}
+
+message PingResponse {
+  string status = 1;
+}
+
+message ResetRequest {
+  bool has_seed = 1;
+  int64 seed = 2;
+}
+
+message EnvState {
+  int64 t = 1;
+  double cash = 2;
+  double units = 3;
+  double equity = 4;
+  double leverage = 5;
+  int64 open_orders = 6;
+  bool done = 7;
+}
+
+message ResetResponse {
+  EnvState state = 1;
+}
+
+message ObserveRequest {}
+
+message MarketWindowViewHandle {
+  int64 start = 1;
+  int64 end = 2;
+  int64 t = 3;
+  double current_price = 4;
+}
+
+message Observation {
+  MarketWindowViewHandle market_window_handle = 1;
+  repeated double portfolio_vector = 2;
+  repeated double order_summary_vector = 3;
+  bool done = 4;
+}
+
+message ObserveResponse {
+  Observation observation = 1;
+}
+
+message EncodedAction {
+  int32 side_code = 1;
+  double units = 2;
+  int32 order_type_code = 3;
+  bool has_limit_price = 4;
+  double limit_price = 5;
+}
+
+message StepManyRequest {
+  repeated EncodedAction actions = 1;
+}
+
+message StepManyResponse {
+  repeated Observation observations = 1;
+  repeated double rewards = 2;
+  repeated bool dones = 3;
+}

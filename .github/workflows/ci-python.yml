@@ -1,0 +1,57 @@
+name: CI Python
+
+on:
+  push:
+    branches: ["**"]
+  pull_request:
+
+jobs:
+  quality-and-tests:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: ffreis-stock-simulator
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.13"
+
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -e ".[dev,grpc]"
+          pip install build
+
+      - name: gRPC stub sync check
+        run: make grpc-check
+
+      - name: Ruff
+        run: ruff check src tests benchmarks
+
+      - name: MyPy
+        run: mypy
+
+      - name: Pytest + Coverage Threshold
+        run: pytest --cov=src --cov-report=term-missing --cov-fail-under=80
+
+      - name: Live API/gRPC E2E Tests
+        run: pytest -q tests/e2e_tests tests/integration_tests/test_live_interface_parity.py
+
+      - name: step_many Throughput Smoke Threshold
+        run: make test-throughput-smoke
+
+      - name: Benchmark Smoke Test
+        run: python -m benchmarks.bench_step --steps 5000 --series-length 512
+
+      - name: Build Wheel
+        run: python -m build --wheel
+
+      - name: Install Wheel And Import
+        run: |
+          pip uninstall -y ffreis-stock-simulator || true
+          pip install dist/*.whl
+          python -c "import stock_simulator; print(stock_simulator.__all__)"

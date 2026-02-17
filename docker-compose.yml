@@ -1,0 +1,49 @@
+services:
+  simulator-api:
+    build:
+      context: .
+      dockerfile: container/Dockerfile
+    image: ffreis-stock-simulator:local
+    container_name: stock-simulator-api
+    command:
+      - python
+      - -m
+      - stock_simulator.server
+    environment:
+      ENGINE_ENABLED: "false"
+      HOST: 0.0.0.0
+      PORT: "8000"
+    ports:
+      - "8000:8000"
+    healthcheck:
+      test:
+        - CMD
+        - python
+        - -c
+        - "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8000/healthz', timeout=3)"
+      interval: 5s
+      timeout: 4s
+      retries: 20
+
+  simulator-grpc:
+    build:
+      context: .
+      dockerfile: container/Dockerfile
+    image: ffreis-stock-simulator:local
+    container_name: stock-simulator-grpc
+    command:
+      - python
+      - -m
+      - stock_simulator.grpc.server
+      - --host
+      - 0.0.0.0
+      - --port
+      - "50051"
+      - --seed
+      - "1234"
+      - --use-numba
+    environment:
+      IPC_SYNTHETIC_BARS: "10000"
+      IPC_SYNTHETIC_SEED: "1234"
+    ports:
+      - "50051:50051"
