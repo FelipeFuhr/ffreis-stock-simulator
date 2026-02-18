@@ -2,6 +2,12 @@
 
 SHELL := /usr/bin/env bash
 
+IMAGE_PROVIDER ?=
+IMAGE_PREFIX ?= ffreis
+IMAGE_TAG ?= api-grpc-smoke
+SMOKE_TIMEOUT ?= 20m
+IMAGE_ROOT := $(if $(IMAGE_PROVIDER),$(IMAGE_PROVIDER)/,)$(IMAGE_PREFIX)
+
 .PHONY: help
 help: ## Show help
 	@awk 'BEGIN {FS = ":.*##"} /^[a-zA-Z0-9_-]+:.*##/ {printf "\033[36m%-22s\033[0m %s\n", $$1, $$2}' $(MAKEFILE_LIST)
@@ -46,13 +52,22 @@ test-e2e: ## Run end-to-end tests
 test-grpc-parity: ## Run gRPC/API parity tests
 	uv run --extra dev --extra grpc pytest -q tests/integration_tests/test_grpc_parity.py
 
+.PHONY: openapi-check
+openapi-check: ## Validate OpenAPI contract and verify runtime drift
+	env -u VIRTUAL_ENV uv run --project . --extra dev --extra grpc --with openapi-spec-validator --with pyyaml python scripts/check_openapi.py
+
 .PHONY: test-throughput-smoke
 test-throughput-smoke: ## Run step_many throughput regression smoke test
 	uv run --extra dev --extra grpc pytest -q tests/integration_tests/test_step_many_throughput.py
 
 .PHONY: smoke-api-grpc
 smoke-api-grpc: ## Run docker-compose HTTP + gRPC smoke test
-	docker compose -f examples/docker-compose.api-grpc.yml up --build --abort-on-container-exit --exit-code-from smoke
+	@set -euo pipefail; \
+	cleanup() { \
+		IMAGE_ROOT="$(IMAGE_ROOT)" IMAGE_TAG="$(IMAGE_TAG)" docker compose -f examples/docker-compose.api-grpc.yml down --remove-orphans || true; \
+	}; \
+	trap cleanup EXIT; \
+	IMAGE_ROOT="$(IMAGE_ROOT)" IMAGE_TAG="$(IMAGE_TAG)" timeout --foreground "$(SMOKE_TIMEOUT)" docker compose -f examples/docker-compose.api-grpc.yml up --build --abort-on-container-exit --exit-code-from smoke
 
 .PHONY: ci
-ci: grpc-check lint typecheck test ## Full CI checks
+ci: grpc-check openapi-check lint typecheck test ## Full CI checks

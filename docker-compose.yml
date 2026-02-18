@@ -3,7 +3,7 @@ services:
     build:
       context: .
       dockerfile: container/Dockerfile
-    image: ffreis-stock-simulator:local
+    image: ${IMAGE_ROOT:-ffreis}-stock-simulator:${IMAGE_TAG:-local}
     container_name: stock-simulator-api
     command:
       - python
@@ -29,7 +29,7 @@ services:
     build:
       context: .
       dockerfile: container/Dockerfile
-    image: ffreis-stock-simulator:local
+    image: ${IMAGE_ROOT:-ffreis}-stock-simulator:${IMAGE_TAG:-local}
     container_name: stock-simulator-grpc
     command:
       - python

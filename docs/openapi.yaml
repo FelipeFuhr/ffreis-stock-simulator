@@ -1,0 +1,337 @@
+openapi: 3.1.0
+info:
+  title: Stock Simulator Service
+  description: Health/ready endpoints and Prometheus metrics endpoint.
+  version: 0.1.0
+paths:
+  /healthz:
+    get:
+      summary: Healthz
+      operationId: healthz_healthz_get
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HealthzResponse'
+  /readyz:
+    get:
+      summary: Readyz
+      operationId: readyz_readyz_get
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ReadyzResponse'
+  /v1/reset:
+    post:
+      summary: Reset
+      operationId: reset_v1_reset_post
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ResetRequest'
+        required: true
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ResetResponse'
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+  /v1/observe:
+    get:
+      summary: Observe
+      operationId: observe_v1_observe_get
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ObserveResponse'
+  /v1/step_many:
+    post:
+      summary: Step Many
+      operationId: step_many_v1_step_many_post
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/StepManyRequest'
+        required: true
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/StepManyResponse'
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+components:
+  schemas:
+    EncodedActionModel:
+      properties:
+        side_code:
+          type: integer
+          title: Side Code
+        units:
+          type: number
+          title: Units
+        order_type_code:
+          type: integer
+          title: Order Type Code
+        has_limit_price:
+          type: boolean
+          title: Has Limit Price
+        limit_price:
+          anyOf:
+          - type: number
+          - type: 'null'
+          title: Limit Price
+      additionalProperties: false
+      type: object
+      required:
+      - side_code
+      - units
+      - order_type_code
+      - has_limit_price
+      title: EncodedActionModel
+      description: Transport model for encoded ``step_many`` action rows.
+    EnvStateModel:
+      properties:
+        t:
+          type: integer
+          title: T
+        cash:
+          type: number
+          title: Cash
+        units:
+          type: number
+          title: Units
+        equity:
+          type: number
+          title: Equity
+        leverage:
+          type: number
+          title: Leverage
+        open_orders:
+          type: integer
+          title: Open Orders
+        done:
+          type: boolean
+          title: Done
+      additionalProperties: false
+      type: object
+      required:
+      - t
+      - cash
+      - units
+      - equity
+      - leverage
+      - open_orders
+      - done
+      title: EnvStateModel
+      description: Pydantic transport model for :class:`EnvState`.
+    HTTPValidationError:
+      properties:
+        detail:
+          items:
+            $ref: '#/components/schemas/ValidationError'
+          type: array
+          title: Detail
+      type: object
+      title: HTTPValidationError
+    HealthzResponse:
+      properties:
+        status:
+          type: string
+          const: ok
+          title: Status
+      additionalProperties: false
+      type: object
+      required:
+      - status
+      title: HealthzResponse
+      description: Liveness response payload.
+    MarketWindowViewHandleModel:
+      properties:
+        start:
+          type: integer
+          title: Start
+        end:
+          type: integer
+          title: End
+        t:
+          type: integer
+          title: T
+        current_price:
+          type: number
+          title: Current Price
+      additionalProperties: false
+      type: object
+      required:
+      - start
+      - end
+      - t
+      - current_price
+      title: MarketWindowViewHandleModel
+      description: Pydantic transport model for :class:`MarketWindowViewHandle`.
+    ObservationModel:
+      properties:
+        market_window_handle:
+          $ref: '#/components/schemas/MarketWindowViewHandleModel'
+        portfolio_vector:
+          items:
+            type: number
+          type: array
+          title: Portfolio Vector
+        order_summary_vector:
+          items:
+            type: number
+          type: array
+          title: Order Summary Vector
+        done:
+          type: boolean
+          title: Done
+      additionalProperties: false
+      type: object
+      required:
+      - market_window_handle
+      - portfolio_vector
+      - order_summary_vector
+      - done
+      title: ObservationModel
+      description: Pydantic transport model for :class:`Observation`.
+    ObserveResponse:
+      properties:
+        observation:
+          $ref: '#/components/schemas/ObservationModel'
+      additionalProperties: false
+      type: object
+      required:
+      - observation
+      title: ObserveResponse
+      description: Observe response payload.
+    ReadyzResponse:
+      properties:
+        status:
+          type: string
+          enum:
+          - ready
+          - not_ready
+          title: Status
+        engine_enabled:
+          type: boolean
+          title: Engine Enabled
+        engine_ready:
+          type: boolean
+          title: Engine Ready
+      additionalProperties: false
+      type: object
+      required:
+      - status
+      - engine_enabled
+      - engine_ready
+      title: ReadyzResponse
+      description: Readiness response payload.
+    ResetRequest:
+      properties:
+        seed:
+          anyOf:
+          - type: integer
+          - type: 'null'
+          title: Seed
+      additionalProperties: false
+      type: object
+      title: ResetRequest
+      description: Reset request payload.
+    ResetResponse:
+      properties:
+        state:
+          $ref: '#/components/schemas/EnvStateModel'
+      additionalProperties: false
+      type: object
+      required:
+      - state
+      title: ResetResponse
+      description: Reset response payload.
+    StepManyRequest:
+      properties:
+        actions:
+          items:
+            $ref: '#/components/schemas/EncodedActionModel'
+          type: array
+          title: Actions
+      additionalProperties: false
+      type: object
+      required:
+      - actions
+      title: StepManyRequest
+      description: Step-many request payload.
+    StepManyResponse:
+      properties:
+        observations:
+          items:
+            $ref: '#/components/schemas/ObservationModel'
+          type: array
+          title: Observations
+        rewards:
+          items:
+            type: number
+          type: array
+          title: Rewards
+        dones:
+          items:
+            type: boolean
+          type: array
+          title: Dones
+      additionalProperties: false
+      type: object
+      required:
+      - observations
+      - rewards
+      - dones
+      title: StepManyResponse
+      description: Step-many response payload.
+    ValidationError:
+      properties:
+        loc:
+          items:
+            anyOf:
+            - type: string
+            - type: integer
+          type: array
+          title: Location
+        msg:
+          type: string
+          title: Message
+        type:
+          type: string
+          title: Error Type
+        input:
+          title: Input
+        ctx:
+          type: object
+          title: Context
+      type: object
+      required:
+      - loc
+      - msg
+      - type
+      title: ValidationError

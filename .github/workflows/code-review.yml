@@ -4,16 +4,30 @@ on:
   pull_request:
     branches: [ main ]
     paths:
-      - "app/**"
+      - "src/**"
+      - "tests/**"
+      - "benchmarks/**"
+      - "examples/**"
+      - "proto/**"
+      - "scripts/**"
+      - "docs/openapi.yaml"
+      - "pyproject.toml"
+      - "uv.lock"
       - "Makefile"
-      - "rust-toolchain.toml"
       - ".github/workflows/code-review.yml"
   push:
     branches: [ main ]
     paths:
-      - "app/**"
+      - "src/**"
+      - "tests/**"
+      - "benchmarks/**"
+      - "examples/**"
+      - "proto/**"
+      - "scripts/**"
+      - "docs/openapi.yaml"
+      - "pyproject.toml"
+      - "uv.lock"
       - "Makefile"
-      - "rust-toolchain.toml"
       - ".github/workflows/code-review.yml"
 
 permissions:
@@ -33,55 +47,31 @@ jobs:
     steps:
       - uses: actions/checkout@v6
 
-      - name: Install Rust (fmt + clippy)
-        uses: dtolnay/rust-toolchain@e97e2d8cc328f1b50210efc529dca0028893a2d9
+      - uses: actions/setup-python@v6
         with:
-          toolchain: stable
-          components: rustfmt, clippy, llvm-tools-preview
+          python-version: "3.13"
 
-      - name: Rust cache
-        uses: Swatinem/rust-cache@779680da715d629ac1d338a641029a2f4372abb5
+      - uses: astral-sh/setup-uv@eac588ad8def6316056a12d4907a9d4d84ff7a3b
         with:
-          workspaces: |
-            app -> target
+          enable-cache: true
 
-      - name: Lint
-        run: |
-          set -euo pipefail
-          make -C app lint
+      - name: Check lock present
+        run: test -s uv.lock || (echo "uv.lock missing - run uv lock"; exit 1)
 
-      - name: Install cargo-llvm-cov
-        run: |
-          set -euo pipefail
-          cargo install cargo-llvm-cov --locked
+      - name: Install dependencies
+        run: uv sync --extra dev --extra grpc
 
-      - name: Install Python deps for coverage
-        run: |
-          set -euo pipefail
-          python -m pip install --upgrade pip
-          python -m pip install defusedxml
+      - name: gRPC stub sync check
+        run: make grpc-check
 
-      - name: Build (Makefile)
-        run: |
-          set -euo pipefail
-          make -C app build
+      - name: OpenAPI contract check
+        run: make openapi-check
 
-      - name: Unit tests
-        run: |
-          set -euo pipefail
-          make -C app test-unit
+      - name: Ruff lint
+        run: make lint
 
-      - name: Integration tests
-        run: |
-          set -euo pipefail
-          make -C app test-integration
+      - name: MyPy
+        run: make typecheck
 
-      - name: E2E smoke tests (non-ignored)
-        run: |
-          set -euo pipefail
-          make -C app test-e2e
-
-      - name: Coverage threshold
-        run: |
-          set -euo pipefail
-          make -C app coverage-check
+      - name: Unit and integration tests
+        run: make test

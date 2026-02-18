@@ -29,6 +29,9 @@ jobs:
       - name: gRPC stub sync check
         run: make grpc-check
 
+      - name: OpenAPI contract check
+        run: make openapi-check
+
       - name: Ruff
         run: ruff check src tests benchmarks
 
