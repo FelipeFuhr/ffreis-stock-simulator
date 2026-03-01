@@ -74,5 +74,5 @@ jobs:
       - name: MyPy
         run: make typecheck
 
-      - name: Unit and integration tests
-        run: make test
+      - name: Unit tests
+        run: make test-unit

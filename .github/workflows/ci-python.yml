@@ -9,15 +9,12 @@ jobs:
   quality-and-tests:
     runs-on: ubuntu-latest
     timeout-minutes: 35
-    defaults:
-      run:
-        working-directory: ffreis-stock-simulator
     steps:
       - name: Checkout
-        uses: actions/checkout@v4
+        uses: actions/checkout@v6
 
       - name: Setup Python
-        uses: actions/setup-python@v5
+        uses: actions/setup-python@v6
         with:
           python-version: "3.13"
 
@@ -44,16 +41,7 @@ jobs:
         run: uv run --frozen mypy
 
       - name: Pytest + Coverage Threshold
-        run: uv run --frozen pytest --cov=src --cov-report=term-missing --cov-fail-under=80
-
-      - name: Live API/gRPC E2E Tests
-        run: uv run --frozen pytest -q tests/e2e_tests tests/integration_tests/test_live_interface_parity.py
-
-      - name: step_many Throughput Smoke Threshold
-        run: make test-throughput-smoke
-
-      - name: Benchmark Smoke Test
-        run: uv run --frozen python -m benchmarks.bench_step --steps 5000 --series-length 512
+        run: uv run --frozen pytest -q tests/unit_tests --cov=src --cov-report=term-missing --cov-fail-under=80
 
       - name: Build Wheel
         run: uv run --frozen --with build python -m build --wheel

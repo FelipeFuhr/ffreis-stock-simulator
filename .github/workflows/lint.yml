@@ -1,4 +1,4 @@
-name: Code Security (Dependency Audit)
+name: Lint
 
 on:
   workflow_dispatch:
@@ -9,11 +9,10 @@ on:
       - "tests/**"
       - "benchmarks/**"
       - "examples/**"
-      - "proto/**"
-      - "scripts/**"
       - "pyproject.toml"
       - "uv.lock"
-      - ".github/workflows/code-security.yml"
+      - "Makefile"
+      - ".github/workflows/lint.yml"
   push:
     branches: [ main ]
     paths:
@@ -21,25 +20,19 @@ on:
       - "tests/**"
       - "benchmarks/**"
       - "examples/**"
-      - "proto/**"
-      - "scripts/**"
       - "pyproject.toml"
       - "uv.lock"
-      - ".github/workflows/code-security.yml"
-  schedule:
-    - cron: "0 9 * * 1"
-
-permissions:
-  contents: read
+      - "Makefile"
+      - ".github/workflows/lint.yml"
 
 concurrency:
-  group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
+  group: ${{ github.workflow }}-${{ github.ref }}
   cancel-in-progress: true
 
 jobs:
-  deps-security:
+  lint:
     runs-on: ubuntu-latest
-    timeout-minutes: 30
+    timeout-minutes: 25
 
     steps:
       - uses: actions/checkout@v6
@@ -52,13 +45,13 @@ jobs:
         with:
           enable-cache: true
 
-      - name: Install dependencies
+      - name: Install deps (frozen)
         run: |
           set -euo pipefail
           uv sync --frozen --extra dev --extra grpc
 
-      - name: Audit dependencies (pip-audit)
-        run: |
-          set -euo pipefail
-          uv export --frozen --all-extras --format requirements-txt -o /tmp/requirements.txt
-          uv run --with pip-audit python -m pip_audit -r /tmp/requirements.txt
+      - name: Ruff
+        run: uv run --frozen ruff check src tests benchmarks examples
+
+      - name: Mypy
+        run: uv run --frozen mypy --config-file pyproject.toml src tests benchmarks

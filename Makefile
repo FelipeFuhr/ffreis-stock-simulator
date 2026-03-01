@@ -40,6 +40,10 @@ typecheck: ## Run mypy checks
 test: ## Run test suite
 	uv run --frozen --extra dev --extra grpc pytest -q
 
+.PHONY: test-unit
+test-unit: ## Run unit tests
+	uv run --frozen --extra dev --extra grpc pytest -q tests/unit_tests
+
 .PHONY: test-integration
 test-integration: ## Run integration tests
 	uv run --frozen --extra dev --extra grpc pytest -q tests/integration_tests

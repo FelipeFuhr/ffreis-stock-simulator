@@ -14,12 +14,9 @@ jobs:
   api-grpc-smoke:
     runs-on: ubuntu-latest
     timeout-minutes: 20
-    defaults:
-      run:
-        working-directory: ffreis-stock-simulator
     steps:
       - name: Checkout
-        uses: actions/checkout@v4
+        uses: actions/checkout@v6
 
       - name: Build and run compose smoke test
         run: |

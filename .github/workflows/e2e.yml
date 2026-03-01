@@ -1,44 +1,38 @@
-name: Code Coverage (Codecov)
+name: E2E Tests
 
 on:
+  workflow_dispatch:
   pull_request:
     branches: [ main ]
     paths:
       - "src/**"
-      - "tests/**"
-      - "benchmarks/**"
-      - "examples/**"
+      - "tests/e2e_tests/**"
       - "proto/**"
       - "scripts/**"
       - "pyproject.toml"
       - "uv.lock"
       - "Makefile"
-      - ".github/workflows/coverage.yml"
+      - ".github/workflows/e2e.yml"
   push:
     branches: [ main ]
     paths:
       - "src/**"
-      - "tests/**"
-      - "benchmarks/**"
-      - "examples/**"
+      - "tests/e2e_tests/**"
       - "proto/**"
       - "scripts/**"
       - "pyproject.toml"
       - "uv.lock"
       - "Makefile"
-      - ".github/workflows/coverage.yml"
-
-permissions:
-  contents: read
+      - ".github/workflows/e2e.yml"
 
 concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}
   cancel-in-progress: true
 
 jobs:
-  coverage:
+  e2e:
     runs-on: ubuntu-latest
-    timeout-minutes: 35
+    timeout-minutes: 30
 
     steps:
       - uses: actions/checkout@v6
@@ -51,17 +45,30 @@ jobs:
         with:
           enable-cache: true
 
-      - name: Generate coverage
+      - name: Install deps (dev+grpc, frozen)
         run: |
           set -euo pipefail
           uv sync --frozen --extra dev --extra grpc
-          ./scripts/generate_grpc_stubs.sh
-          uv run --frozen pytest -q --cov=src --cov-report=term --cov-report=xml:coverage.xml
-          test -s coverage.xml
 
-      - name: Upload coverage to Codecov
+      - name: Check generated gRPC stubs are current
+        run: make grpc-check
+
+      - name: Run e2e tests
+        run: |
+          set -euo pipefail
+          uv run --frozen pytest -q tests/e2e_tests \
+            --cov=src \
+            --cov-report=xml:coverage-e2e.xml \
+            --cov-report=term \
+            --cov-fail-under=0
+          test -s coverage-e2e.xml
+
+      - name: Upload e2e coverage to Codecov
+        if: ${{ github.event_name != 'pull_request' || github.event.pull_request.head.repo.fork == false }}
         uses: codecov/codecov-action@671740ac38dd9b0130fbe1cec585b89eea48d3de
         with:
-          files: ./coverage.xml
-          fail_ci_if_error: true
+          files: ./coverage-e2e.xml
+          flags: e2e
+          name: e2e-coverage
+          fail_ci_if_error: false
           verbose: true

@@ -5,19 +5,31 @@ on:
   pull_request:
     branches: [ main ]
     paths:
-      - "app/**"
+      - "src/**"
+      - "tests/**"
+      - "benchmarks/**"
+      - "examples/**"
+      - "proto/**"
+      - "scripts/**"
+      - "pyproject.toml"
+      - "uv.lock"
       - "container/**"
-      - "Makefile"
       - ".github/workflows/snyk.yml"
   push:
     branches: [ main ]
     paths:
-      - "app/**"
+      - "src/**"
+      - "tests/**"
+      - "benchmarks/**"
+      - "examples/**"
+      - "proto/**"
+      - "scripts/**"
+      - "pyproject.toml"
+      - "uv.lock"
       - "container/**"
-      - "Makefile"
       - ".github/workflows/snyk.yml"
   schedule:
-    - cron: "0 10 * * 1" # Mondays 10:00 UTC
+    - cron: "0 10 * * 1"
 
 permissions:
   contents: read
@@ -31,13 +43,17 @@ jobs:
   snyk:
     if: ${{ github.event_name != 'pull_request' || github.event.pull_request.head.repo.fork == false }}
     runs-on: ubuntu-latest
+    timeout-minutes: 35
     steps:
       - uses: actions/checkout@v6
 
-      - name: Install Rust
-        uses: dtolnay/rust-toolchain@e97e2d8cc328f1b50210efc529dca0028893a2d9
+      - uses: actions/setup-python@v6
         with:
-          toolchain: stable
+          python-version: "3.13"
+
+      - uses: astral-sh/setup-uv@eac588ad8def6316056a12d4907a9d4d84ff7a3b
+        with:
+          enable-cache: true
 
       - name: Setup Node.js (for Snyk CLI)
         uses: actions/setup-node@v6
@@ -50,39 +66,18 @@ jobs:
           npm install -g snyk
           snyk --version
 
-      - name: Install CycloneDX generator for Cargo
+      - name: Install dependencies
         run: |
           set -euo pipefail
-          cargo install cargo-cyclonedx --locked
+          uv sync --frozen --extra dev --extra grpc
 
-      - name: Generate Cargo SBOM (CycloneDX JSON)
-        run: |
-          set -euo pipefail
-          mkdir -p snyk-results
-          (
-            cd app
-            cargo cyclonedx --format json
-          )
-          sbom_path="$(
-            find app -type f \( -name "bom.json" -o -name "*.cdx.json" -o -name "*cyclonedx*.json" \) \
-              | head -n 1
-          )"
-          if [ -z "${sbom_path}" ]; then
-            echo "No CycloneDX JSON SBOM file found under app/ after cargo cyclonedx." >&2
-            find app -maxdepth 3 -type f | sort >&2
-            exit 1
-          fi
-          cp "${sbom_path}" snyk-results/sbom.json
-          test -s snyk-results/sbom.json
-
-      - name: Snyk Open Source scan (SBOM)
+      - name: Snyk Open Source scan
         env:
           SNYK_TOKEN: ${{ secrets.SNYK_TOKEN }}
         run: |
           set -euo pipefail
-          snyk sbom test \
-            --file=snyk-results/sbom.json \
-            --sarif-file-output=snyk-results/oss.sarif || true
+          mkdir -p snyk-results
+          snyk test --all-projects --detection-depth=4 --sarif-file-output=snyk-results/oss.sarif || true
           test -s snyk-results/oss.sarif
 
       - name: Snyk Code scan
