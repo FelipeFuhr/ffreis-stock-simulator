@@ -2,13 +2,17 @@ from __future__ import annotations
 
 from importlib import import_module as importlib_import_module
 from types import ModuleType
-from typing import Protocol, TypeAlias, cast
+from typing import Protocol, cast
 
-from grpc import Channel as grpc_Channel, insecure_channel as grpc_insecure_channel
-from numpy import asarray as np_asarray, bool_ as np_bool_, float64 as np_float64, isnan as np_isnan
+from grpc import Channel as grpc_Channel
+from grpc import insecure_channel as grpc_insecure_channel
+from numpy import asarray as np_asarray
+from numpy import bool_ as np_bool_
+from numpy import float64 as np_float64
+from numpy import isnan as np_isnan
 from numpy.typing import NDArray
 
-ObservationDict: TypeAlias = dict[
+type ObservationDict = dict[
     str,
     bool | list[float] | dict[str, int | float],
 ]
@@ -137,18 +141,14 @@ class _Pb2GrpcProtocol(Protocol):
 def _require_engine_pb2() -> _Pb2Protocol:
     """Return generated protobuf messages module or raise actionable error."""
     if engine_pb2 is None:
-        raise RuntimeError(
-            "gRPC protobuf messages are unavailable. Run ./scripts/generate_grpc_stubs.sh first."
-        )
+        raise RuntimeError("gRPC protobuf messages are unavailable. Run ./scripts/generate_grpc_stubs.sh first.")
     return cast(_Pb2Protocol, engine_pb2)
 
 
 def _require_engine_pb2_grpc() -> _Pb2GrpcProtocol:
     """Return generated grpc stubs module or raise actionable error."""
     if engine_pb2_grpc is None:
-        raise RuntimeError(
-            "gRPC stubs are unavailable. Run ./scripts/generate_grpc_stubs.sh first."
-        )
+        raise RuntimeError("gRPC stubs are unavailable. Run ./scripts/generate_grpc_stubs.sh first.")
     return cast(_Pb2GrpcProtocol, engine_pb2_grpc)
 
 

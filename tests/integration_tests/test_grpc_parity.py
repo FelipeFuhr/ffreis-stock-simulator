@@ -4,11 +4,18 @@ from collections.abc import Callable
 from os import getenv as os_getenv
 from typing import Protocol, cast
 
-from numpy import array as np_array, asarray as np_asarray, bool_ as np_bool_, float64 as np_float64, isnan as np_isnan, nan as np_nan, testing as np_testing
-from pytest import mark as pytest_mark, skip as pytest_skip
 from hypothesis import HealthCheck, given, settings
 from hypothesis import strategies as st
+from numpy import array as np_array
+from numpy import asarray as np_asarray
+from numpy import bool_ as np_bool_
+from numpy import float64 as np_float64
+from numpy import isnan as np_isnan
+from numpy import nan as np_nan
+from numpy import testing as np_testing
 from numpy.typing import NDArray
+from pytest import mark as pytest_mark
+from pytest import skip as pytest_skip
 
 from stock_simulator.config import GameConfig
 from stock_simulator.data import MarketData
@@ -55,7 +62,18 @@ class _StepManyRequestLike(Protocol):
     actions: list[_EncodedActionLike]
 
 
+class _ResetRequestLike(_MessageTypeLike, Protocol):
+    has_seed: bool
+    seed: int
+
+
+class _ObserveRequestLike(_MessageTypeLike, Protocol):
+    pass
+
+
 class _FactoryEncodedAction(Protocol):
+    DESCRIPTOR: _MessageDescriptorLike
+
     def __call__(
         self,
         *,
@@ -72,11 +90,11 @@ class _FactoryStepManyRequest(Protocol):
 
 
 class _FactoryResetRequest(Protocol):
-    def __call__(self, *, has_seed: bool, seed: int) -> _MessageTypeLike: ...
+    def __call__(self, *, has_seed: bool, seed: int) -> _ResetRequestLike: ...
 
 
 class _FactoryObserveRequest(Protocol):
-    def __call__(self) -> _MessageTypeLike: ...
+    def __call__(self) -> _ObserveRequestLike: ...
 
 
 class _StepManyRequestType(_MessageTypeLike, _FactoryStepManyRequest, Protocol):
@@ -105,12 +123,38 @@ class _ReplyObservationLike(Protocol):
     market_window_handle: _ReplyMarketHandleLike
     portfolio_vector: list[float]
     order_summary_vector: list[float]
+    done: bool
+
+
+class _ReplyEnvStateLike(Protocol):
+    t: int
+    cash: float
+    units: float
+    equity: float
+    open_orders: int
+    done: bool
+
+
+class _ResetReplyLike(Protocol):
+    state: _ReplyEnvStateLike
+
+
+class _ObserveReplyLike(Protocol):
+    observation: _ReplyObservationLike
 
 
 class _StepManyReplyLike(Protocol):
     observations: list[_ReplyObservationLike]
     rewards: list[float]
     dones: list[bool]
+
+
+class _EngineGrpcServiceLike(Protocol):
+    def Reset(self, request: _ResetRequestLike, context: None) -> _ResetReplyLike: ...  # noqa: N802
+
+    def Observe(self, request: _ObserveRequestLike, context: None) -> _ObserveReplyLike: ...  # noqa: N802
+
+    def StepMany(self, request: _StepManyRequestLike, context: None) -> _StepManyReplyLike: ...  # noqa: N802
 
 
 engine_pb2 = cast(_Pb2Like, _engine_pb2)
@@ -236,7 +280,7 @@ def test_grpc_service_matches_env_behavior(
 
     env_direct = MarketEnv(data=data, cfg=cfg)
     env_grpc = MarketEnv(data=data, cfg=cfg)
-    grpc_service = EngineGrpcService(env_grpc)
+    grpc_service = cast(_EngineGrpcServiceLike, EngineGrpcService(env_grpc))
 
     direct_state = env_direct.reset(seed=4242)
     grpc_state = grpc_service.Reset(
@@ -332,7 +376,7 @@ def test_property_based_behavior_parity(
 
     env_direct = MarketEnv(data=data, cfg=cfg)
     env_grpc = MarketEnv(data=data, cfg=cfg)
-    grpc_service = EngineGrpcService(env_grpc)
+    grpc_service = cast(_EngineGrpcServiceLike, EngineGrpcService(env_grpc))
 
     env_direct.reset(seed=3030)
     grpc_service.Reset(engine_pb2.ResetRequest(has_seed=True, seed=3030), None)
@@ -356,7 +400,7 @@ def test_error_parity_for_invalid_order_type_code(
     cfg = GameConfig(seed=77, use_numba=False)
     env_direct = MarketEnv(data=data, cfg=cfg)
     env_grpc = MarketEnv(data=data, cfg=cfg)
-    grpc_service = EngineGrpcService(env_grpc)
+    grpc_service = cast(_EngineGrpcServiceLike, EngineGrpcService(env_grpc))
 
     env_direct.reset(seed=77)
     grpc_service.Reset(engine_pb2.ResetRequest(has_seed=True, seed=77), None)

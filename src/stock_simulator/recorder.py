@@ -3,14 +3,16 @@ from __future__ import annotations
 from abc import ABC, abstractmethod
 from dataclasses import asdict, dataclass
 from pathlib import Path
-from typing import TypeAlias
 
-from pandas import DataFrame as pd_DataFrame, concat as pd_concat, isna as pd_isna, read_parquet as pd_read_parquet
+from pandas import DataFrame as pd_DataFrame
+from pandas import concat as pd_concat
+from pandas import isna as pd_isna
+from pandas import read_parquet as pd_read_parquet
 
 from .types import Action
 
-ReplayScalar: TypeAlias = int | float | str | None
-ReplayRow: TypeAlias = dict[str, ReplayScalar]
+type ReplayScalar = int | float | str | None
+type ReplayRow = dict[str, ReplayScalar]
 
 
 @dataclass(frozen=True)

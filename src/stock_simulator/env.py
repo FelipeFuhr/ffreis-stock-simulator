@@ -1,6 +1,10 @@
 from __future__ import annotations
 
-from numpy import bool_ as np_bool_, float64 as np_float64, int8 as np_int8, isnan as np_isnan, zeros as np_zeros
+from numpy import bool_ as np_bool_
+from numpy import float64 as np_float64
+from numpy import int8 as np_int8
+from numpy import isnan as np_isnan
+from numpy import zeros as np_zeros
 from numpy.random import default_rng
 from numpy.typing import NDArray
 
@@ -151,11 +155,7 @@ class MarketEnv:
                 {
                     "sim.has_fill": execution.fills > 0,
                     "sim.fill_bucket": (
-                        "none"
-                        if execution.fills == 0
-                        else "single"
-                        if execution.fills == 1
-                        else "multi"
+                        "none" if execution.fills == 0 else "single" if execution.fills == 1 else "multi"
                     ),
                 },
             ):
@@ -258,9 +258,7 @@ class MarketEnv:
                     action_side=np_int8(int(action_side_code)),
                     action_units=float(action_units),
                     action_order_type=np_int8(int(action_order_code)),
-                    action_limit_price=(
-                        0.0 if np_isnan(action_limit) else float(action_limit)
-                    ),
+                    action_limit_price=(0.0 if np_isnan(action_limit) else float(action_limit)),
                     market_open=self._market_arrays.open,
                     market_high=self._market_arrays.high,
                     market_low=self._market_arrays.low,

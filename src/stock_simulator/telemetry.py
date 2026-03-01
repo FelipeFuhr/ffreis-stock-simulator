@@ -1,9 +1,9 @@
 from __future__ import annotations
 
-from os import getenv as os_getenv
-from time import perf_counter as time_perf_counter
 from collections.abc import Iterator
 from contextlib import contextmanager
+from os import getenv as os_getenv
+from time import perf_counter as time_perf_counter
 from typing import Protocol, cast
 
 from opentelemetry import metrics, trace
@@ -53,9 +53,7 @@ def _get_or_create_gauge(name: str, documentation: str, labelnames: tuple[str, .
     return Gauge(name=name, documentation=documentation, labelnames=labelnames)
 
 
-def _get_or_create_histogram(
-    name: str, documentation: str, labelnames: tuple[str, ...] = ()
-) -> Histogram:
+def _get_or_create_histogram(name: str, documentation: str, labelnames: tuple[str, ...] = ()) -> Histogram:
     existing = _collector_by_name(name)
     if isinstance(existing, Histogram):
         return existing
@@ -129,9 +127,7 @@ class Telemetry:
             self._prom_config_info.labels(config_hash=config_hash).set(1)
 
     @contextmanager
-    def step_span(
-        self, *, use_numba: bool, action_side: str, action_type: str
-    ) -> Iterator[None]:
+    def step_span(self, *, use_numba: bool, action_side: str, action_type: str) -> Iterator[None]:
         """Create parent span around one environment step."""
         start = time_perf_counter()
         with self._tracer.start_as_current_span("env.step") as span:

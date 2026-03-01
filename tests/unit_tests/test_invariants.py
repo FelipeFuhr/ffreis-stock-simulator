@@ -1,11 +1,11 @@
 from __future__ import annotations
 
-from math import isnan as math_isnan
 from collections.abc import Callable
+from math import isnan as math_isnan
 
-from pytest import approx as pytest_approx
 from hypothesis import HealthCheck, given, settings
 from hypothesis import strategies as st
+from pytest import approx as pytest_approx
 
 from stock_simulator.config import GameConfig
 from stock_simulator.data import MarketData

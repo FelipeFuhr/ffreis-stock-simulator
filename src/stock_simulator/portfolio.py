@@ -2,7 +2,9 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 
-from numpy import asarray as np_asarray, float64 as np_float64, inf as np_inf
+from numpy import asarray as np_asarray
+from numpy import float64 as np_float64
+from numpy import inf as np_inf
 from numpy.typing import NDArray
 
 from .core import CoreState

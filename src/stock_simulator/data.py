@@ -1,8 +1,10 @@
 from __future__ import annotations
 
-from numpy import float32 as np_float32, object_ as np_object_
-from pandas import DataFrame as pd_DataFrame, read_csv as pd_read_csv
+from numpy import float32 as np_float32
+from numpy import object_ as np_object_
 from numpy.typing import NDArray
+from pandas import DataFrame as pd_DataFrame
+from pandas import read_csv as pd_read_csv
 
 
 class MarketData:

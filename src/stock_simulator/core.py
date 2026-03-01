@@ -2,8 +2,13 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 
-from numpy import array as np_array, float32 as np_float32, float64 as np_float64, int32 as np_int32, int8 as np_int8, zeros as np_zeros
 from numba import njit
+from numpy import array as np_array
+from numpy import float32 as np_float32
+from numpy import float64 as np_float64
+from numpy import int8 as np_int8
+from numpy import int32 as np_int32
+from numpy import zeros as np_zeros
 from numpy.typing import NDArray
 
 from .config import GameConfig

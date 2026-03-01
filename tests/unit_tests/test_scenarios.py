@@ -39,9 +39,7 @@ def test_monotonic_uptrend_long_is_profitable(
     close = [100.0 + i * 0.5 for i in range(80)]
     data = market_data_factory(close=close, spread=0.1)
     env = MarketEnv(data=data, cfg=cfg_factory())
-    actions = [Action(side="buy", units=10.0, order_type="market")] + [
-        Action(side="hold") for _ in range(40)
-    ]
+    actions = [Action(side="buy", units=10.0, order_type="market")] + [Action(side="hold") for _ in range(40)]
     final_equity, equities = _run(env, actions)
 
     assert final_equity > equities[0]
@@ -55,9 +53,7 @@ def test_monotonic_downtrend_long_loses_money(
     close = [140.0 - i * 0.5 for i in range(80)]
     data = market_data_factory(close=close, spread=0.1)
     env = MarketEnv(data=data, cfg=cfg_factory())
-    actions = [Action(side="buy", units=10.0, order_type="market")] + [
-        Action(side="hold") for _ in range(40)
-    ]
+    actions = [Action(side="buy", units=10.0, order_type="market")] + [Action(side="hold") for _ in range(40)]
     final_equity, equities = _run(env, actions)
 
     assert final_equity < equities[0]
@@ -71,9 +67,7 @@ def test_shock_bar_creates_large_drawdown(
     close = [100.0] * 20 + [60.0] + [61.0, 62.0, 63.0, 64.0] + [64.0] * 20
     data = market_data_factory(close=close, spread=0.1)
     env = MarketEnv(data=data, cfg=cfg_factory())
-    actions = [Action(side="buy", units=20.0, order_type="market")] + [
-        Action(side="hold") for _ in range(35)
-    ]
+    actions = [Action(side="buy", units=20.0, order_type="market")] + [Action(side="hold") for _ in range(35)]
     _, equities = _run(env, actions)
 
     pre_shock_equity = equities[10]
@@ -89,9 +83,7 @@ def test_margin_call_condition_is_detectable(
     data = market_data_factory(close=close, spread=0.1)
     cfg = cfg_factory(max_leverage=3.0)
     env = MarketEnv(data=data, cfg=cfg)
-    actions = [Action(side="buy", units=2000.0, order_type="market")] + [
-        Action(side="hold") for _ in range(5)
-    ]
+    actions = [Action(side="buy", units=2000.0, order_type="market")] + [Action(side="hold") for _ in range(5)]
     _, equities = _run(env, actions)
 
     assert min(equities) <= 0.0

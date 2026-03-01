@@ -3,12 +3,14 @@ from __future__ import annotations
 from os import getenv as os_getenv
 from typing import Literal
 
-from numpy import asarray as np_asarray, float64 as np_float64, nan as np_nan
-from uvicorn import run as uvicorn_run
 from fastapi import FastAPI, HTTPException, Response, status
+from numpy import asarray as np_asarray
+from numpy import float64 as np_float64
+from numpy import nan as np_nan
 from numpy.typing import NDArray
 from prometheus_client import make_asgi_app
 from pydantic import BaseModel, ConfigDict
+from uvicorn import run as uvicorn_run
 
 from .config import GameConfig
 from .data import MarketData

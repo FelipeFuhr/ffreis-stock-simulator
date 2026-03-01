@@ -4,9 +4,14 @@ from collections.abc import Callable
 from typing import cast
 
 from httpx import post as httpx_post
-from numpy import asarray as np_asarray, bool_ as np_bool_, float64 as np_float64, isnan as np_isnan, nan as np_nan, testing as np_testing
-from pytest import skip as pytest_skip
+from numpy import asarray as np_asarray
+from numpy import bool_ as np_bool_
+from numpy import float64 as np_float64
+from numpy import isnan as np_isnan
+from numpy import nan as np_nan
+from numpy import testing as np_testing
 from numpy.typing import NDArray
+from pytest import skip as pytest_skip
 
 from tests.conftest import RunningService
 

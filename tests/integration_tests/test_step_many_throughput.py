@@ -1,11 +1,16 @@
 from __future__ import annotations
 
+from collections.abc import Callable
 from os import getenv as os_getenv
 from sys import gettrace as sys_gettrace
 from time import perf_counter as time_perf_counter
-from collections.abc import Callable
 
-from numpy import array as np_array, float64 as np_float64, nan as np_nan, ndarray as np_ndarray, random as np_random, zeros as np_zeros
+from numpy import array as np_array
+from numpy import float64 as np_float64
+from numpy import nan as np_nan
+from numpy import ndarray as np_ndarray
+from numpy import random as np_random
+from numpy import zeros as np_zeros
 from pytest import skip as pytest_skip
 
 from stock_simulator.config import GameConfig

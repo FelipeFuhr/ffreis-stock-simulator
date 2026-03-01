@@ -1,41 +1,53 @@
 from __future__ import annotations
 
-from contextlib import closing as contextlib_closing
-from os import environ as os_environ
-from socket import AF_INET as socket_AF_INET, SOCK_STREAM as socket_SOCK_STREAM, socket as socket_socket
-from subprocess import DEVNULL as subprocess_DEVNULL, Popen as subprocess_Popen, TimeoutExpired as subprocess_TimeoutExpired
-from sys import executable as sys_executable
-from time import sleep as time_sleep, time as time_time
 from collections.abc import Callable, Generator, Sequence
+from contextlib import closing as contextlib_closing
 from dataclasses import dataclass
+from os import environ as os_environ
 from pathlib import Path
+from socket import AF_INET as socket_AF_INET
+from socket import SOCK_STREAM as socket_SOCK_STREAM
+from socket import socket as socket_socket
+from subprocess import DEVNULL as subprocess_DEVNULL
+from subprocess import Popen as subprocess_Popen
+from subprocess import TimeoutExpired as subprocess_TimeoutExpired
+from sys import executable as sys_executable
+from time import sleep as time_sleep
+from time import time as time_time
 from types import ModuleType
 from typing import cast
 
-from numpy import asarray as np_asarray, float64 as np_float64, full as np_full, linspace as np_linspace, nan as np_nan
-from pandas import DataFrame as pd_DataFrame, date_range as pd_date_range
-from pytest import fixture as pytest_fixture, skip as pytest_skip
+from numpy import asarray as np_asarray
+from numpy import float64 as np_float64
+from numpy import full as np_full
+from numpy import linspace as np_linspace
+from numpy import nan as np_nan
 from numpy.typing import NDArray
+from pandas import DataFrame as pd_DataFrame
+from pandas import date_range as pd_date_range
+from pytest import fixture as pt_fixture
+from pytest import skip as pt_skip
 
-from stock_simulator.config import GameConfig
+from stock_simulator.config import ConfigScalar, GameConfig
 from stock_simulator.data import MarketData
 from stock_simulator.types import Action
 
+_engine_pb2: ModuleType | None
 try:
     from stocksim_grpc import engine_pb2 as _engine_pb2
 except ImportError:  # pragma: no cover
     _engine_pb2 = None
 
 try:
-    import grpc as _grpc
+    import grpc as _grpc_module
 except ModuleNotFoundError:  # pragma: no cover
-    _grpc = None
+    _grpc_module = None
 
-grpc = cast(ModuleType | None, _grpc)
-engine_pb2 = cast(ModuleType | None, _engine_pb2)
+grpc = cast(ModuleType | None, _grpc_module)
+engine_pb2 = _engine_pb2
 
 
-@pytest_fixture
+@pt_fixture
 def market_data_factory() -> Callable[..., MarketData]:
     def _factory(
         *,
@@ -67,10 +79,10 @@ def market_data_factory() -> Callable[..., MarketData]:
     return _factory
 
 
-@pytest_fixture
+@pt_fixture
 def cfg_factory() -> Callable[..., GameConfig]:
     def _factory(**overrides: int | float | bool) -> GameConfig:
-        defaults: dict[str, int | float | bool] = {
+        defaults: dict[str, ConfigScalar] = {
             "seed": 123,
             "use_numba": False,
             "market_latency_bars": 0,
@@ -80,12 +92,12 @@ def cfg_factory() -> Callable[..., GameConfig]:
             "slippage_bps": 0.0,
         }
         defaults.update(overrides)
-        return GameConfig(**defaults)
+        return GameConfig.from_mapping(defaults)
 
     return _factory
 
 
-@pytest_fixture
+@pt_fixture
 def encode_actions() -> Callable[[Sequence[Action]], NDArray[np_float64]]:
     def _encode(actions: Sequence[Action]) -> NDArray[np_float64]:
         rows: list[list[float]] = []
@@ -146,7 +158,7 @@ def _wait_http_ready(url: str, timeout_seconds: float = 20.0) -> None:
 
 def _wait_grpc_ready(target: str, timeout_seconds: float = 20.0) -> None:
     if grpc is None or engine_pb2 is None:
-        pytest_skip("grpc stubs/runtime are required for gRPC fixtures/tests")
+        pt_skip("grpc stubs/runtime are required for gRPC fixtures/tests")
     deadline = time_time() + timeout_seconds
     last_error: Exception | None = None
     while time_time() < deadline:
@@ -182,7 +194,7 @@ def _write_market_csv(path: Path, n: int = 512) -> None:
     frame.to_csv(path, index=False)
 
 
-@pytest_fixture
+@pt_fixture
 def launch_http_server(tmp_path: Path) -> Generator[Callable[..., RunningService]]:
     """Launch the FastAPI server in a subprocess and wait for readiness."""
 
@@ -224,7 +236,7 @@ def launch_http_server(tmp_path: Path) -> Generator[Callable[..., RunningService
                 proc.kill()
 
 
-@pytest_fixture
+@pt_fixture
 def launch_grpc_server(tmp_path: Path) -> Generator[Callable[..., RunningService]]:
     """Launch the gRPC server in a subprocess and wait for readiness."""
 

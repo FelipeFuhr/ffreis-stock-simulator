@@ -1,15 +1,22 @@
 from __future__ import annotations
 
-from argparse import ArgumentParser as argparse_ArgumentParser, Namespace as argparse_Namespace
+from argparse import ArgumentParser as argparse_ArgumentParser
+from argparse import Namespace as argparse_Namespace
 from os import getenv as os_getenv
+from pathlib import Path
 from sys import path as sys_path
 from time import perf_counter as time_perf_counter
-from pathlib import Path
 from typing import TYPE_CHECKING
 
-from numpy import asarray as np_asarray, cumprod as np_cumprod, float32 as np_float32, float64 as np_float64, maximum as np_maximum, minimum as np_minimum, roll as np_roll
-from pandas import date_range as pd_date_range
+from numpy import asarray as np_asarray
+from numpy import cumprod as np_cumprod
+from numpy import float32 as np_float32
+from numpy import float64 as np_float64
+from numpy import maximum as np_maximum
+from numpy import minimum as np_minimum
+from numpy import roll as np_roll
 from numpy.random import default_rng
+from pandas import date_range as pd_date_range
 
 if TYPE_CHECKING:
     from stock_simulator.config import GameConfig

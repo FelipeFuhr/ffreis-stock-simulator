@@ -1,13 +1,13 @@
 from __future__ import annotations
 
+from dataclasses import asdict, dataclass, fields
 from hashlib import sha256 as hashlib_sha256
 from json import dumps as json_dumps
 from os import getenv as os_getenv
-from dataclasses import asdict, dataclass, fields
 from pathlib import Path
-from typing import TypeAlias, get_type_hints
+from typing import get_type_hints
 
-ConfigScalar: TypeAlias = bool | int | float | str
+type ConfigScalar = bool | int | float | str
 
 
 @dataclass
@@ -44,11 +44,9 @@ class GameConfig:
     @classmethod
     def from_yaml(cls, path: str | Path) -> GameConfig:
         try:
-                        from yaml import safe_load as yaml_safe_load
+            from yaml import safe_load as yaml_safe_load
         except ModuleNotFoundError as exc:
-            raise RuntimeError(
-                "PyYAML is required for YAML config loading. Install pyyaml."
-            ) from exc
+            raise RuntimeError("PyYAML is required for YAML config loading. Install pyyaml.") from exc
 
         config_path = Path(path)
         raw = yaml_safe_load(config_path.read_text(encoding="utf-8"))
@@ -113,9 +111,7 @@ class GameConfig:
         return config
 
 
-def _coerce_env_value(
-    raw: str, expected_type: type[bool] | type[int] | type[float] | type[str]
-) -> ConfigScalar:
+def _coerce_env_value(raw: str, expected_type: type[bool] | type[int] | type[float] | type[str]) -> ConfigScalar:
     if expected_type not in {bool, int, float, str}:
         expected_type = str
     value = raw.strip()

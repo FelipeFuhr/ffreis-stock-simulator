@@ -2,7 +2,8 @@ from __future__ import annotations
 
 from collections.abc import Callable
 
-from httpx import get as httpx_get, post as httpx_post
+from httpx import get as httpx_get
+from httpx import post as httpx_post
 
 from tests.conftest import RunningService
 

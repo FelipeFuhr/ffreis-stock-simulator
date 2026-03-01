@@ -2,7 +2,11 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 
-from numpy import asarray as np_asarray, float64 as np_float64, int8 as np_int8, logical_and as np_logical_and, sum as np_sum
+from numpy import asarray as np_asarray
+from numpy import float64 as np_float64
+from numpy import int8 as np_int8
+from numpy import logical_and as np_logical_and
+from numpy import sum as np_sum
 from numpy.typing import NDArray
 
 from .core import CoreState

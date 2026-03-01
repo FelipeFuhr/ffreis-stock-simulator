@@ -2,7 +2,11 @@ from __future__ import annotations
 
 from collections.abc import Callable
 
-from numpy import asarray as np_asarray, bool_ as np_bool_, float64 as np_float64, ndarray as np_ndarray, testing as np_testing
+from numpy import asarray as np_asarray
+from numpy import bool_ as np_bool_
+from numpy import float64 as np_float64
+from numpy import ndarray as np_ndarray
+from numpy import testing as np_testing
 from numpy.typing import NDArray
 
 from stock_simulator.config import GameConfig

@@ -1,16 +1,27 @@
 from __future__ import annotations
 
 from argparse import ArgumentParser as argparse_ArgumentParser
+from concurrent.futures import ThreadPoolExecutor as concurrentfutures_ThreadPoolExecutor
 from importlib import import_module as importlib_import_module
 from os import getenv as os_getenv
-from concurrent import futures
 from types import ModuleType
 from typing import Protocol, cast
 
-from grpc import Server as grpc_Server, ServicerContext as grpc_ServicerContext, StatusCode as grpc_StatusCode, server as grpc_server
-from numpy import asarray as np_asarray, cumprod as np_cumprod, float64 as np_float64, maximum as np_maximum, minimum as np_minimum, nan as np_nan, random as np_random, roll as np_roll
-from pandas import DataFrame as pd_DataFrame, date_range as pd_date_range
+from grpc import Server as grpc_Server
+from grpc import ServicerContext as grpc_ServicerContext
+from grpc import StatusCode as grpc_StatusCode
+from grpc import server as grpc_server
+from numpy import asarray as np_asarray
+from numpy import cumprod as np_cumprod
+from numpy import float64 as np_float64
+from numpy import maximum as np_maximum
+from numpy import minimum as np_minimum
+from numpy import nan as np_nan
+from numpy import random as np_random
+from numpy import roll as np_roll
 from numpy.typing import NDArray
+from pandas import DataFrame as pd_DataFrame
+from pandas import date_range as pd_date_range
 
 from ..config import GameConfig
 from ..data import MarketData
@@ -43,9 +54,7 @@ engine_pb2_grpc = _load_engine_pb2_grpc_module()
 
 
 class _MarketWindowFactory(Protocol):
-    def __call__(
-        self, *, start: int, end: int, t: int, current_price: float
-    ) -> ProtoMessage: ...
+    def __call__(self, *, start: int, end: int, t: int, current_price: float) -> ProtoMessage: ...
 
 
 class _ObservationFactory(Protocol):
@@ -123,26 +132,20 @@ class _RequestWithActions(Protocol):
 
 
 class _GrpcStubsProtocol(Protocol):
-    def add_EngineServiceServicer_to_server(
-        self, servicer: EngineGrpcService, server: grpc_Server
-    ) -> None: ...
+    def add_EngineServiceServicer_to_server(self, servicer: EngineGrpcService, server: grpc_Server) -> None: ...
 
 
 def _require_engine_pb2() -> _Pb2Protocol:
     """Return generated protobuf messages module or raise actionable error."""
     if engine_pb2 is None:
-        raise RuntimeError(
-            "gRPC protobuf messages are unavailable. Run ./scripts/generate_grpc_stubs.sh first."
-        )
+        raise RuntimeError("gRPC protobuf messages are unavailable. Run ./scripts/generate_grpc_stubs.sh first.")
     return cast(_Pb2Protocol, engine_pb2)
 
 
 def _require_engine_pb2_grpc() -> _GrpcStubsProtocol:
     """Return generated grpc stubs module or raise actionable error."""
     if engine_pb2_grpc is None:
-        raise RuntimeError(
-            "gRPC stubs are unavailable. Run ./scripts/generate_grpc_stubs.sh first."
-        )
+        raise RuntimeError("gRPC stubs are unavailable. Run ./scripts/generate_grpc_stubs.sh first.")
     return cast(_GrpcStubsProtocol, engine_pb2_grpc)
 
 
@@ -206,21 +209,21 @@ def _state_to_proto(state: EnvState) -> ProtoMessage:
 
 
 class EngineGrpcService:
-    _RPC_NAME_MAP: dict[str, str] = {
-        "Ping": "ping",
-        "Reset": "reset",
-        "Observe": "observe",
-        "StepMany": "step_many",
-    }
-
     def __init__(self, env: MarketEnv) -> None:
         self._env = env
 
-    def __getattr__(self, name: str) -> object:
-        method_name = self._RPC_NAME_MAP.get(name)
-        if method_name is None:
-            raise AttributeError(f"{type(self).__name__!s} has no attribute {name!r}")
-        return getattr(self, method_name)
+    # gRPC-generated server dispatch expects PascalCase RPC method names.
+    def Ping(self, request: ProtoMessage, context: grpc_ServicerContext) -> ProtoMessage:  # noqa: N802
+        return self.ping(request, context)
+
+    def Reset(self, request: _RequestWithSeed, context: grpc_ServicerContext) -> ProtoMessage:  # noqa: N802
+        return self.reset(request, context)
+
+    def Observe(self, request: ProtoMessage, context: grpc_ServicerContext) -> ProtoMessage:  # noqa: N802
+        return self.observe(request, context)
+
+    def StepMany(self, request: _RequestWithActions, context: grpc_ServicerContext) -> ProtoMessage:  # noqa: N802
+        return self.step_many(request, context)
 
     def ping(self, request: ProtoMessage, context: grpc_ServicerContext) -> ProtoMessage:
         _ = (request, context)
@@ -299,7 +302,7 @@ def create_server(
     env = MarketEnv(data=market_data, cfg=config)
     env.reset(seed=config.seed)
 
-    server = grpc_server(futures.ThreadPoolExecutor(max_workers=max_workers))
+    server = grpc_server(concurrentfutures_ThreadPoolExecutor(max_workers=max_workers))
     pb2_grpc = _require_engine_pb2_grpc()
     pb2_grpc.add_EngineServiceServicer_to_server(EngineGrpcService(env), server)
     server.add_insecure_port(f"{host}:{port}")

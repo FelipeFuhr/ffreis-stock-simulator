@@ -1,15 +1,16 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
-from typing import Literal, TypeAlias
+from typing import Literal
 
-from numpy import asarray as np_asarray, float64 as np_float64
+from numpy import asarray as np_asarray
+from numpy import float64 as np_float64
 from numpy.typing import NDArray
 from pydantic import BaseModel, ConfigDict
 
 Side = Literal["buy", "sell", "hold"]
 OrderType = Literal["market", "limit"]
-SerializedObservation: TypeAlias = dict[str, int | float | bool | list[float] | dict[str, int | float]]
+type SerializedObservation = dict[str, int | float | bool | list[float] | dict[str, int | float]]
 
 
 @dataclass(frozen=True)

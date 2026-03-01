@@ -3,8 +3,11 @@ from __future__ import annotations
 from collections.abc import Callable
 from typing import TypedDict, cast
 
-from grpc import RpcError as grpc_RpcError, StatusCode as grpc_StatusCode
-from numpy import asarray as np_asarray, float64 as np_float64, nan as np_nan
+from grpc import RpcError as grpc_RpcError
+from grpc import StatusCode as grpc_StatusCode
+from numpy import asarray as np_asarray
+from numpy import float64 as np_float64
+from numpy import nan as np_nan
 from pytest import skip as pytest_skip
 
 from tests.conftest import RunningService
