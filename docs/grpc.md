@@ -2,6 +2,8 @@
 
 The simulator exposes gRPC in addition to HTTP (FastAPI).
 
+Server reflection is intentionally not enabled in runtime paths.
+
 ## Install
 
 ```bash

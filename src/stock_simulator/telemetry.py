@@ -4,7 +4,7 @@ import os
 import time
 from collections.abc import Iterator
 from contextlib import contextmanager
-from typing import Any
+from typing import Protocol, cast
 
 from opentelemetry import metrics, trace
 from opentelemetry.exporter.otlp.proto.http.metric_exporter import OTLPMetricExporter
@@ -19,32 +19,36 @@ from prometheus_client import REGISTRY, Counter, Gauge, Histogram
 _TELEMETRY_SINGLETON: Telemetry | None = None
 
 
+class _CollectorLike(Protocol):
+    """Marker protocol for Prometheus collector instances."""
+
+
 def _as_bool(value: str | None, default: bool) -> bool:
     if value is None:
         return default
     return value.strip().lower() in {"1", "true", "t", "yes", "y", "on"}
 
 
-def _collector_by_name(name: str) -> Any | None:
+def _collector_by_name(name: str) -> _CollectorLike | None:
     mapping = getattr(REGISTRY, "_names_to_collectors", {})
     if name in mapping:
-        return mapping[name]
+        return cast(_CollectorLike, mapping[name])
     total_name = f"{name}_total"
     if total_name in mapping:
-        return mapping[total_name]
+        return cast(_CollectorLike, mapping[total_name])
     return None
 
 
 def _get_or_create_counter(name: str, documentation: str, labelnames: tuple[str, ...] = ()) -> Counter:
     existing = _collector_by_name(name)
-    if existing is not None:
+    if isinstance(existing, Counter):
         return existing
     return Counter(name=name, documentation=documentation, labelnames=labelnames)
 
 
 def _get_or_create_gauge(name: str, documentation: str, labelnames: tuple[str, ...] = ()) -> Gauge:
     existing = _collector_by_name(name)
-    if existing is not None:
+    if isinstance(existing, Gauge):
         return existing
     return Gauge(name=name, documentation=documentation, labelnames=labelnames)
 
@@ -53,7 +57,7 @@ def _get_or_create_histogram(
     name: str, documentation: str, labelnames: tuple[str, ...] = ()
 ) -> Histogram:
     existing = _collector_by_name(name)
-    if existing is not None:
+    if isinstance(existing, Histogram):
         return existing
     return Histogram(name=name, documentation=documentation, labelnames=labelnames)
 

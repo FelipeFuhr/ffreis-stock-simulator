@@ -52,6 +52,10 @@ test-e2e: ## Run end-to-end tests
 test-grpc-parity: ## Run gRPC/API parity tests
 	uv run --extra dev --extra grpc pytest -q tests/integration_tests/test_grpc_parity.py
 
+.PHONY: test-grpc-parity-property
+test-grpc-parity-property: ## Run gRPC/API property parity tests (Hypothesis)
+	uv run --extra dev --extra grpc pytest -q tests/integration_tests/test_grpc_parity.py -m property
+
 .PHONY: openapi-check
 openapi-check: ## Validate OpenAPI contract and verify runtime drift
 	env -u VIRTUAL_ENV uv run --project . --extra dev --extra grpc --with openapi-spec-validator --with pyyaml python scripts/check_openapi.py

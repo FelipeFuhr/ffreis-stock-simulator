@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
-from typing import Literal
+from typing import Literal, TypeAlias
 
 import numpy as np
 from numpy.typing import NDArray
@@ -9,6 +9,7 @@ from pydantic import BaseModel, ConfigDict
 
 Side = Literal["buy", "sell", "hold"]
 OrderType = Literal["market", "limit"]
+SerializedObservation: TypeAlias = dict[str, int | float | bool | list[float] | dict[str, int | float]]
 
 
 @dataclass(frozen=True)
@@ -147,12 +148,12 @@ class Observation:
             "done": np.asarray([1.0 if self.done else 0.0], dtype=np.float64),
         }
 
-    def to_serializable(self) -> dict[str, object]:
+    def to_serializable(self) -> SerializedObservation:
         """Convert observation into JSON-serializable primitives.
 
         Returns
         -------
-        dict[str, object]
+        SerializedObservation
             Dictionary with plain Python scalars, lists, and nested dictionaries.
         """
         return {

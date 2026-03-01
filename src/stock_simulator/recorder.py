@@ -3,11 +3,14 @@ from __future__ import annotations
 from abc import ABC, abstractmethod
 from dataclasses import asdict, dataclass
 from pathlib import Path
-from typing import Any
+from typing import TypeAlias
 
 import pandas as pd
 
 from .types import Action
+
+ReplayScalar: TypeAlias = int | float | str | None
+ReplayRow: TypeAlias = dict[str, ReplayScalar]
 
 
 @dataclass(frozen=True)
@@ -180,20 +183,21 @@ class ParquetRecorder(Recorder):
         replay_rows: list[RecordedStep] = []
         for row in rows:
             data = row if isinstance(row, dict) else dict(row)
-            limit_raw: Any = data["limit_price"]
+            typed_data = {str(key): value for key, value in data.items()}
+            limit_raw = typed_data["limit_price"]
             replay_rows.append(
                 RecordedStep(
-                    episode_id=int(data["episode_id"]),
-                    step=int(data["step"]),
-                    seed=int(data["seed"]),
-                    side=str(data["side"]),
-                    order_type=str(data["order_type"]),
-                    units=float(data["units"]),
+                    episode_id=int(typed_data["episode_id"]),
+                    step=int(typed_data["step"]),
+                    seed=int(typed_data["seed"]),
+                    side=str(typed_data["side"]),
+                    order_type=str(typed_data["order_type"]),
+                    units=float(typed_data["units"]),
                     limit_price=(None if pd.isna(limit_raw) else float(limit_raw)),
-                    fills=int(data["fills"]),
-                    equity=float(data["equity"]),
-                    leverage=float(data["leverage"]),
-                    price=float(data["price"]),
+                    fills=int(typed_data["fills"]),
+                    equity=float(typed_data["equity"]),
+                    leverage=float(typed_data["leverage"]),
+                    price=float(typed_data["price"]),
                 )
             )
         return tuple(replay_rows)

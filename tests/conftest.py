@@ -9,7 +9,8 @@ import time
 from collections.abc import Callable, Generator, Sequence
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Any, cast
+from types import ModuleType
+from typing import cast
 
 import numpy as np
 import pandas as pd
@@ -26,11 +27,12 @@ except (ImportError, ModuleNotFoundError):  # pragma: no cover
     _engine_pb2 = None
 
 try:
-    import grpc
+    import grpc as _grpc
 except ModuleNotFoundError:  # pragma: no cover
-    grpc = None  # type: ignore[assignment]
+    _grpc = None
 
-engine_pb2: Any = cast(Any, _engine_pb2)
+grpc = cast(ModuleType | None, _grpc)
+engine_pb2 = cast(ModuleType | None, _engine_pb2)
 
 
 @pytest.fixture
@@ -67,8 +69,8 @@ def market_data_factory() -> Callable[..., MarketData]:
 
 @pytest.fixture
 def cfg_factory() -> Callable[..., GameConfig]:
-    def _factory(**overrides: Any) -> GameConfig:
-        defaults: dict[str, Any] = {
+    def _factory(**overrides: int | float | bool) -> GameConfig:
+        defaults: dict[str, int | float | bool] = {
             "seed": 123,
             "use_numba": False,
             "market_latency_bars": 0,

@@ -53,6 +53,7 @@ markers = [
     "unit: fast isolated tests",
     "integration: tests spanning multiple modules/files",
     "e2e: end-to-end tests using public entrypoints",
+    "property: property-based tests (typically Hypothesis)",
 ]
 
 [tool.ruff]

@@ -1,7 +1,8 @@
 from __future__ import annotations
 
 from collections.abc import Callable
-from typing import Any, cast
+import os
+from typing import Protocol, cast
 
 import numpy as np
 import pytest
@@ -13,7 +14,7 @@ from stock_simulator.config import GameConfig
 from stock_simulator.data import MarketData
 from stock_simulator.env import MarketEnv
 from stock_simulator.server import create_app
-from stock_simulator.types import Action, EnvStateModel, ObservationModel
+from stock_simulator.types import Action, EnvStateModel, MarketWindowViewHandleModel, ObservationModel
 
 try:
     from stock_simulator.grpc.server import EngineGrpcService
@@ -21,7 +22,98 @@ try:
 except (ImportError, ModuleNotFoundError) as exc:
     pytest.skip(f"grpc parity dependencies unavailable: {exc}", allow_module_level=True)
 
-engine_pb2: Any = cast(Any, _engine_pb2)
+
+class _MethodLike(Protocol):
+    name: str
+
+
+class _ServiceDescriptorLike(Protocol):
+    methods: list[_MethodLike]
+
+
+class _MessageDescriptorLike(Protocol):
+    fields_by_name: dict[str, int]
+
+
+class _RootDescriptorLike(Protocol):
+    services_by_name: dict[str, _ServiceDescriptorLike]
+
+
+class _MessageTypeLike(Protocol):
+    DESCRIPTOR: _MessageDescriptorLike
+
+
+class _EncodedActionLike(Protocol):
+    side_code: int
+    units: float
+    order_type_code: int
+    has_limit_price: bool
+    limit_price: float
+
+
+class _StepManyRequestLike(Protocol):
+    actions: list[_EncodedActionLike]
+
+
+class _FactoryEncodedAction(Protocol):
+    def __call__(
+        self,
+        *,
+        side_code: int,
+        units: float,
+        order_type_code: int,
+        has_limit_price: bool,
+        limit_price: float,
+    ) -> _EncodedActionLike: ...
+
+
+class _FactoryStepManyRequest(Protocol):
+    def __call__(self, *, actions: list[_EncodedActionLike]) -> _StepManyRequestLike: ...
+
+
+class _FactoryResetRequest(Protocol):
+    def __call__(self, *, has_seed: bool, seed: int) -> _MessageTypeLike: ...
+
+
+class _FactoryObserveRequest(Protocol):
+    def __call__(self) -> _MessageTypeLike: ...
+
+
+class _StepManyRequestType(_MessageTypeLike, _FactoryStepManyRequest, Protocol):
+    pass
+
+
+class _Pb2Like(Protocol):
+    DESCRIPTOR: _RootDescriptorLike
+    EnvState: _MessageTypeLike
+    Observation: _MessageTypeLike
+    MarketWindowViewHandle: _MessageTypeLike
+    EncodedAction: _FactoryEncodedAction
+    StepManyRequest: _StepManyRequestType
+    ResetRequest: _FactoryResetRequest
+    ObserveRequest: _FactoryObserveRequest
+
+
+class _ReplyMarketHandleLike(Protocol):
+    start: float
+    end: float
+    t: float
+    current_price: float
+
+
+class _ReplyObservationLike(Protocol):
+    market_window_handle: _ReplyMarketHandleLike
+    portfolio_vector: list[float]
+    order_summary_vector: list[float]
+
+
+class _StepManyReplyLike(Protocol):
+    observations: list[_ReplyObservationLike]
+    rewards: list[float]
+    dones: list[bool]
+
+
+engine_pb2 = cast(_Pb2Like, _engine_pb2)
 
 _HTTP_TO_GRPC_SURFACE_MAP: dict[str, str] = {
     "/healthz": "Ping",
@@ -31,10 +123,11 @@ _HTTP_TO_GRPC_SURFACE_MAP: dict[str, str] = {
 }
 _UNMAPPED_HTTP_PATHS: set[str] = {"/readyz"}
 _UNMAPPED_GRPC_METHODS: set[str] = set()
+_HYPOTHESIS_MAX_EXAMPLES = int(os.getenv("HYPOTHESIS_MAX_EXAMPLES", "25"))
 
 
-def _build_step_many_request(actions: NDArray[np.float64]) -> Any:
-    encoded = []
+def _build_step_many_request(actions: NDArray[np.float64]) -> _StepManyRequestLike:
+    encoded: list[_EncodedActionLike] = []
     for row in actions:
         encoded.append(
             engine_pb2.EncodedAction(
@@ -49,7 +142,7 @@ def _build_step_many_request(actions: NDArray[np.float64]) -> Any:
 
 
 def _grpc_reply_to_arrays(
-    reply: Any,
+    reply: _StepManyReplyLike,
 ) -> tuple[
     NDArray[np.float64],
     NDArray[np.float64],
@@ -76,7 +169,7 @@ def _grpc_reply_to_arrays(
     return market, portfolio, orders, rewards, dones
 
 
-def _contract_fields(message: Any) -> set[str]:
+def _contract_fields(message: _MessageTypeLike) -> set[str]:
     return set(message.DESCRIPTOR.fields_by_name.keys())
 
 
@@ -110,7 +203,7 @@ def test_contract_parity_for_env_state_and_observation_models() -> None:
     pydantic_env_fields = set(EnvStateModel.model_fields.keys())
     pydantic_observation_fields = set(ObservationModel.model_fields.keys())
     market_handle_annotation = cast(
-        Any,
+        type[MarketWindowViewHandleModel],
         ObservationModel.model_fields["market_window_handle"].annotation,
     )
     pydantic_market_fields = set(market_handle_annotation.model_fields.keys())
@@ -200,8 +293,9 @@ def test_grpc_service_matches_env_behavior(
     np.testing.assert_array_equal(direct_dones, grpc_dones)
 
 
+@pytest.mark.property
 @settings(
-    max_examples=25,
+    max_examples=_HYPOTHESIS_MAX_EXAMPLES,
     deadline=None,
     suppress_health_check=[HealthCheck.function_scoped_fixture],
 )

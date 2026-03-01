@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from collections.abc import Callable
-from typing import cast
+from typing import TypedDict, cast
 
 import grpc
 import numpy as np
@@ -13,6 +13,13 @@ try:
     from stock_simulator.grpc.client import EngineGrpcClient
 except (ImportError, ModuleNotFoundError) as exc:
     pytest.skip(f"grpc parity dependencies unavailable: {exc}", allow_module_level=True)
+
+
+class _MarketWindowHandle(TypedDict):
+    start: int
+    end: int
+    t: int
+    current_price: float
 
 
 def test_grpc_live_service_roundtrip(
@@ -28,8 +35,8 @@ def test_grpc_live_service_roundtrip(
         assert reset["done"] is False
 
         observe = client.observe()
-        market_handle = cast(dict[str, object], observe["market_window_handle"])
-        assert int(cast(int, market_handle["t"])) >= 0
+        market_handle = cast(_MarketWindowHandle, observe["market_window_handle"])
+        assert int(market_handle["t"]) >= 0
 
         actions = np.asarray(
             [

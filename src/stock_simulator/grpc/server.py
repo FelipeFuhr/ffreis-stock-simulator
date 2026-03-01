@@ -5,7 +5,7 @@ import importlib
 import os
 from concurrent import futures
 from types import ModuleType
-from typing import Any, cast
+from typing import Protocol, cast
 
 import grpc
 import numpy as np
@@ -16,6 +16,10 @@ from ..config import GameConfig
 from ..data import MarketData
 from ..env import MarketEnv
 from ..types import EnvState, Observation
+
+
+class ProtoMessage(Protocol):
+    """Marker protocol for protobuf request/response objects."""
 
 
 def _load_grpc_module(module_name: str) -> ModuleType | None:
@@ -30,22 +34,108 @@ engine_pb2 = _load_grpc_module("stocksim_grpc.engine_pb2")
 engine_pb2_grpc = _load_grpc_module("stocksim_grpc.engine_pb2_grpc")
 
 
-def _require_engine_pb2() -> ModuleType:
+class _MarketWindowFactory(Protocol):
+    def __call__(
+        self, *, start: int, end: int, t: int, current_price: float
+    ) -> ProtoMessage: ...
+
+
+class _ObservationFactory(Protocol):
+    def __call__(
+        self,
+        *,
+        market_window_handle: ProtoMessage,
+        portfolio_vector: list[float],
+        order_summary_vector: list[float],
+        done: bool,
+    ) -> ProtoMessage: ...
+
+
+class _EnvStateFactory(Protocol):
+    def __call__(
+        self,
+        *,
+        t: int,
+        cash: float,
+        units: float,
+        equity: float,
+        leverage: float,
+        open_orders: int,
+        done: bool,
+    ) -> ProtoMessage: ...
+
+
+class _PingResponseFactory(Protocol):
+    def __call__(self, *, status: str) -> ProtoMessage: ...
+
+
+class _ResetResponseFactory(Protocol):
+    def __call__(self, *, state: ProtoMessage) -> ProtoMessage: ...
+
+
+class _ObserveResponseFactory(Protocol):
+    def __call__(self, *, observation: ProtoMessage) -> ProtoMessage: ...
+
+
+class _StepManyResponseFactory(Protocol):
+    def __call__(
+        self,
+        *,
+        observations: list[ProtoMessage] = ...,
+        rewards: list[float] = ...,
+        dones: list[bool] = ...,
+    ) -> ProtoMessage: ...
+
+
+class _Pb2Protocol(Protocol):
+    MarketWindowViewHandle: _MarketWindowFactory
+    Observation: _ObservationFactory
+    EnvState: _EnvStateFactory
+    PingResponse: _PingResponseFactory
+    ResetResponse: _ResetResponseFactory
+    ObserveResponse: _ObserveResponseFactory
+    StepManyResponse: _StepManyResponseFactory
+
+
+class _ActionLike(Protocol):
+    side_code: int
+    units: float
+    order_type_code: int
+    has_limit_price: bool
+    limit_price: float
+
+
+class _RequestWithSeed(Protocol):
+    has_seed: bool
+    seed: int
+
+
+class _RequestWithActions(Protocol):
+    actions: list[_ActionLike]
+
+
+class _GrpcStubsProtocol(Protocol):
+    def add_EngineServiceServicer_to_server(
+        self, servicer: EngineGrpcService, server: grpc.Server
+    ) -> None: ...
+
+
+def _require_engine_pb2() -> _Pb2Protocol:
     """Return generated protobuf messages module or raise actionable error."""
     if engine_pb2 is None:
         raise RuntimeError(
             "gRPC protobuf messages are unavailable. Run ./scripts/generate_grpc_stubs.sh first."
         )
-    return engine_pb2
+    return cast(_Pb2Protocol, engine_pb2)
 
 
-def _require_engine_pb2_grpc() -> ModuleType:
+def _require_engine_pb2_grpc() -> _GrpcStubsProtocol:
     """Return generated grpc stubs module or raise actionable error."""
     if engine_pb2_grpc is None:
         raise RuntimeError(
             "gRPC stubs are unavailable. Run ./scripts/generate_grpc_stubs.sh first."
         )
-    return engine_pb2_grpc
+    return cast(_GrpcStubsProtocol, engine_pb2_grpc)
 
 
 def _build_synthetic_market_data(bars: int = 1024, seed: int = 1234) -> MarketData:
@@ -79,8 +169,8 @@ def _load_market_data() -> MarketData:
     return _build_synthetic_market_data(bars=bars, seed=seed)
 
 
-def _observation_to_proto(observation: Observation) -> Any:
-    pb2 = cast(Any, _require_engine_pb2())
+def _observation_to_proto(observation: Observation) -> ProtoMessage:
+    pb2 = _require_engine_pb2()
     return pb2.Observation(
         market_window_handle=pb2.MarketWindowViewHandle(
             start=observation.market.start,
@@ -94,8 +184,8 @@ def _observation_to_proto(observation: Observation) -> Any:
     )
 
 
-def _state_to_proto(state: EnvState) -> Any:
-    pb2 = cast(Any, _require_engine_pb2())
+def _state_to_proto(state: EnvState) -> ProtoMessage:
+    pb2 = _require_engine_pb2()
     return pb2.EnvState(
         t=state.t,
         cash=state.cash,
@@ -111,34 +201,26 @@ class EngineGrpcService:
     def __init__(self, env: MarketEnv) -> None:
         self._env = env
 
-    def Ping(  # noqa: N802
-        self, request: Any, context: grpc.ServicerContext
-    ) -> Any:
+    def Ping(self, request: ProtoMessage, context: grpc.ServicerContext) -> ProtoMessage:  # noqa: N802
         _ = (request, context)
-        pb2 = cast(Any, _require_engine_pb2())
+        pb2 = _require_engine_pb2()
         return pb2.PingResponse(status="pong")
 
-    def Reset(  # noqa: N802
-        self, request: Any, context: grpc.ServicerContext
-    ) -> Any:
+    def Reset(self, request: _RequestWithSeed, context: grpc.ServicerContext) -> ProtoMessage:  # noqa: N802
         _ = context
-        pb2 = cast(Any, _require_engine_pb2())
+        pb2 = _require_engine_pb2()
         seed: int | None = int(request.seed) if request.has_seed else None
         state = self._env.reset(seed=seed)
         return pb2.ResetResponse(state=_state_to_proto(state))
 
-    def Observe(  # noqa: N802
-        self, request: Any, context: grpc.ServicerContext
-    ) -> Any:
+    def Observe(self, request: ProtoMessage, context: grpc.ServicerContext) -> ProtoMessage:  # noqa: N802
         _ = (request, context)
-        pb2 = cast(Any, _require_engine_pb2())
+        pb2 = _require_engine_pb2()
         observation = self._env.observe()
         return pb2.ObserveResponse(observation=_observation_to_proto(observation))
 
-    def StepMany(  # noqa: N802
-        self, request: Any, context: grpc.ServicerContext
-    ) -> Any:
-        pb2 = cast(Any, _require_engine_pb2())
+    def StepMany(self, request: _RequestWithActions, context: grpc.ServicerContext) -> ProtoMessage:  # noqa: N802
+        pb2 = _require_engine_pb2()
         if len(request.actions) == 0:
             return pb2.StepManyResponse()
 
@@ -157,12 +239,10 @@ class EngineGrpcService:
         try:
             observations, rewards, dones = self._env.step_many(actions_matrix)
         except ValueError as exc:
-            if context is None:
-                raise
             context.abort(grpc.StatusCode.INVALID_ARGUMENT, str(exc))
             raise AssertionError("context.abort should raise") from exc
 
-        observation_rows = []
+        observation_rows: list[ProtoMessage] = []
         num_rows = int(rewards.shape[0])
         for i in range(num_rows):
             observation_rows.append(
@@ -199,7 +279,7 @@ def create_server(
     env.reset(seed=config.seed)
 
     server = grpc.server(futures.ThreadPoolExecutor(max_workers=max_workers))
-    pb2_grpc = cast(Any, _require_engine_pb2_grpc())
+    pb2_grpc = _require_engine_pb2_grpc()
     pb2_grpc.add_EngineServiceServicer_to_server(EngineGrpcService(env), server)
     server.add_insecure_port(f"{host}:{port}")
     return server
