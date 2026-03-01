@@ -40,6 +40,7 @@ concurrency:
 jobs:
   checks:
     runs-on: ubuntu-latest
+    timeout-minutes: 25
     defaults:
       run:
         shell: bash
@@ -59,7 +60,7 @@ jobs:
         run: test -s uv.lock || (echo "uv.lock missing - run uv lock"; exit 1)
 
       - name: Install dependencies
-        run: uv sync --extra dev --extra grpc
+        run: uv sync --frozen --extra dev --extra grpc
 
       - name: Fast checks
         run: |

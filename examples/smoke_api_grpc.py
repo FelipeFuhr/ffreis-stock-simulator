@@ -1,9 +1,11 @@
 from __future__ import annotations
 
-from json import dumps as json_dumps, loads as json_loads
-from os import getenv as os_getenv
-from time import sleep as time_sleep, time as time_time
 from http.client import HTTPConnection, HTTPSConnection
+from json import dumps as json_dumps
+from json import loads as json_loads
+from os import getenv as os_getenv
+from time import sleep as time_sleep
+from time import time as time_time
 from urllib.parse import urlsplit
 
 from grpc import insecure_channel as grpc_insecure_channel
@@ -42,14 +44,14 @@ def _http_request(
     return status, payload
 
 
-def _wait_http_ok(scheme: str, netloc: str, path: str, timeout_seconds: float = 30.0) -> bytes:
+def _wait_http_ok(
+    scheme: str, netloc: str, path: str, timeout_seconds: float = 30.0
+) -> bytes:
     deadline = time_time() + timeout_seconds
     last_error: Exception | None = None
     while time_time() < deadline:
         try:
-            status, payload = _http_request(
-                scheme, netloc, path, timeout_seconds=3.0
-            )
+            status, payload = _http_request(scheme, netloc, path, timeout_seconds=3.0)
             if status == 200:
                 return payload
         except Exception as exc:  # noqa: BLE001
@@ -124,7 +126,8 @@ def _assert_grpc_endpoints(grpc_target: str) -> None:
 
 
 def main() -> None:
-    api_base = os_getenv("SIM_API_BASE", "http://simulator-api:8000")
+    # Prefer TLS by default; local compose smoke explicitly overrides to http.
+    api_base = os_getenv("SIM_API_BASE", "https://simulator-api:8000")
     grpc_target = os_getenv("SIM_GRPC_TARGET", "simulator-grpc:50051")
 
     _assert_http_endpoints(api_base)

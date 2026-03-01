@@ -5,15 +5,25 @@ on:
   push:
     branches: [ main ]
     paths:
-      - "app/**"
+      - "src/**"
+      - "tests/**"
+      - "examples/**"
+      - "pyproject.toml"
+      - "uv.lock"
       - "container/**"
+      - "scripts/**"
       - "Makefile"
       - ".github/workflows/grype.yml"
   pull_request:
     branches: [ main ]
     paths:
-      - "app/**"
+      - "src/**"
+      - "tests/**"
+      - "examples/**"
+      - "pyproject.toml"
+      - "uv.lock"
       - "container/**"
+      - "scripts/**"
       - "Makefile"
       - ".github/workflows/grype.yml"
 
@@ -28,6 +38,7 @@ permissions:
 jobs:
   grype:
     runs-on: ubuntu-latest
+    timeout-minutes: 45
 
     steps:
       - uses: actions/checkout@v6
@@ -68,9 +79,13 @@ jobs:
 
           for image in "${images[@]}"; do
             name="${image##*/}"
+            archive="grype-results/${name}.oci.tar"
             out="grype-results/${name}.sarif"
 
-            ./bin/grype "podman:${image}" -o sarif --file "$out" --fail-on high
+            podman image exists "${image}"
+            podman save --format oci-archive --output "${archive}" "${image}"
+
+            ./bin/grype "oci-archive:${archive}" -o sarif --file "$out" --fail-on high
 
             test -s "$out"
           done

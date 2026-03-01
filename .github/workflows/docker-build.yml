@@ -4,15 +4,25 @@ on:
   push:
     branches: [ main ]
     paths:
-      - "app/**"
+      - "src/**"
+      - "tests/**"
+      - "examples/**"
+      - "pyproject.toml"
+      - "uv.lock"
       - "container/**"
+      - "scripts/**"
       - "Makefile"
       - ".github/workflows/docker-build.yml"
   pull_request:
     branches: [ main ]
     paths:
-      - "app/**"
+      - "src/**"
+      - "tests/**"
+      - "examples/**"
+      - "pyproject.toml"
+      - "uv.lock"
       - "container/**"
+      - "scripts/**"
       - "Makefile"
       - ".github/workflows/docker-build.yml"
 

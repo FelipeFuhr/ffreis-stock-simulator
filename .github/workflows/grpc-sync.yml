@@ -8,6 +8,7 @@ on:
 jobs:
   grpc-sync-and-parity:
     runs-on: ubuntu-latest
+    timeout-minutes: 30
     defaults:
       run:
         working-directory: ffreis-stock-simulator
@@ -27,7 +28,7 @@ jobs:
 
       - name: Install dependencies (uv)
         run: |
-          uv sync --extra dev --extra grpc
+          uv sync --frozen --extra dev --extra grpc
 
       - name: Check generated gRPC stubs are current
         run: make grpc-check
@@ -36,4 +37,4 @@ jobs:
         run: make test-grpc-parity
 
       - name: Run live interface parity test
-        run: uv run --extra dev --extra grpc pytest -q tests/integration_tests/test_live_interface_parity.py
+        run: uv run --frozen pytest -q tests/integration_tests/test_live_interface_parity.py

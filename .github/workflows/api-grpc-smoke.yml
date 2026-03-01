@@ -6,9 +6,14 @@ on:
   push:
     branches: ["**"]
 
+concurrency:
+  group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
 jobs:
   api-grpc-smoke:
     runs-on: ubuntu-latest
+    timeout-minutes: 20
     defaults:
       run:
         working-directory: ffreis-stock-simulator
@@ -18,7 +23,7 @@ jobs:
 
       - name: Build and run compose smoke test
         run: |
-          docker compose -f examples/docker-compose.api-grpc.yml up --build --abort-on-container-exit --exit-code-from smoke
+          make smoke-api-grpc
 
       - name: Tear down compose stack
         if: always()

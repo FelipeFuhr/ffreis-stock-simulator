@@ -8,6 +8,7 @@ on:
 jobs:
   quality-and-tests:
     runs-on: ubuntu-latest
+    timeout-minutes: 35
     defaults:
       run:
         working-directory: ffreis-stock-simulator
@@ -20,11 +21,15 @@ jobs:
         with:
           python-version: "3.13"
 
-      - name: Install dependencies
+      - name: Setup uv
+        uses: astral-sh/setup-uv@eac588ad8def6316056a12d4907a9d4d84ff7a3b
+        with:
+          enable-cache: true
+
+      - name: Install dependencies (frozen)
         run: |
-          python -m pip install --upgrade pip
-          pip install -e ".[dev,grpc]"
-          pip install build
+          test -s uv.lock || (echo "uv.lock missing - run uv lock"; exit 1)
+          uv sync --frozen --extra dev --extra grpc
 
       - name: gRPC stub sync check
         run: make grpc-check
@@ -33,28 +38,28 @@ jobs:
         run: make openapi-check
 
       - name: Ruff
-        run: ruff check src tests benchmarks
+        run: uv run --frozen ruff check src tests benchmarks
 
       - name: MyPy
-        run: mypy
+        run: uv run --frozen mypy
 
       - name: Pytest + Coverage Threshold
-        run: pytest --cov=src --cov-report=term-missing --cov-fail-under=80
+        run: uv run --frozen pytest --cov=src --cov-report=term-missing --cov-fail-under=80
 
       - name: Live API/gRPC E2E Tests
-        run: pytest -q tests/e2e_tests tests/integration_tests/test_live_interface_parity.py
+        run: uv run --frozen pytest -q tests/e2e_tests tests/integration_tests/test_live_interface_parity.py
 
       - name: step_many Throughput Smoke Threshold
         run: make test-throughput-smoke
 
       - name: Benchmark Smoke Test
-        run: python -m benchmarks.bench_step --steps 5000 --series-length 512
+        run: uv run --frozen python -m benchmarks.bench_step --steps 5000 --series-length 512
 
       - name: Build Wheel
-        run: python -m build --wheel
+        run: uv run --frozen --with build python -m build --wheel
 
       - name: Install Wheel And Import
         run: |
-          pip uninstall -y ffreis-stock-simulator || true
-          pip install dist/*.whl
-          python -c "import stock_simulator; print(stock_simulator.__all__)"
+          uv run --frozen pip uninstall -y ffreis-stock-simulator || true
+          uv run --frozen pip install dist/*.whl
+          uv run --frozen python -c "import stock_simulator; print(stock_simulator.__all__)"

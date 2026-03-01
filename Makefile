@@ -14,7 +14,7 @@ help: ## Show help
 
 .PHONY: install
 install: ## Install project with dev and grpc extras
-	uv sync --extra dev --extra grpc
+	uv sync --frozen --extra dev --extra grpc
 
 .PHONY: grpc-generate
 grpc-generate: ## Regenerate protobuf/gRPC stubs
@@ -30,39 +30,39 @@ grpc-clean: ## Remove generated protobuf/gRPC stubs
 
 .PHONY: lint
 lint: ## Run Ruff checks
-	uv run --extra dev --extra grpc ruff check src tests benchmarks examples
+	uv run --frozen --extra dev --extra grpc ruff check src tests benchmarks examples
 
 .PHONY: typecheck
 typecheck: ## Run mypy checks
-	uv run --extra dev --extra grpc mypy --config-file pyproject.toml src tests benchmarks
+	uv run --frozen --extra dev --extra grpc mypy --config-file pyproject.toml src tests benchmarks
 
 .PHONY: test
 test: ## Run test suite
-	uv run --extra dev --extra grpc pytest -q
+	uv run --frozen --extra dev --extra grpc pytest -q
 
 .PHONY: test-integration
 test-integration: ## Run integration tests
-	uv run --extra dev --extra grpc pytest -q tests/integration_tests
+	uv run --frozen --extra dev --extra grpc pytest -q tests/integration_tests
 
 .PHONY: test-e2e
 test-e2e: ## Run end-to-end tests
-	uv run --extra dev --extra grpc pytest -q tests/e2e_tests
+	uv run --frozen --extra dev --extra grpc pytest -q tests/e2e_tests
 
 .PHONY: test-grpc-parity
 test-grpc-parity: ## Run gRPC/API parity tests
-	uv run --extra dev --extra grpc pytest -q tests/integration_tests/test_grpc_parity.py
+	uv run --frozen --extra dev --extra grpc pytest -q tests/integration_tests/test_grpc_parity.py
 
 .PHONY: test-grpc-parity-property
 test-grpc-parity-property: ## Run gRPC/API property parity tests (Hypothesis)
-	uv run --extra dev --extra grpc pytest -q tests/integration_tests/test_grpc_parity.py -m property
+	uv run --frozen --extra dev --extra grpc pytest -q tests/integration_tests/test_grpc_parity.py -m property
 
 .PHONY: openapi-check
 openapi-check: ## Validate OpenAPI contract and verify runtime drift
-	env -u VIRTUAL_ENV uv run --project . --extra dev --extra grpc --with openapi-spec-validator --with pyyaml python scripts/check_openapi.py
+	env -u VIRTUAL_ENV uv run --frozen --project . --extra dev --extra grpc --with openapi-spec-validator --with pyyaml python scripts/check_openapi.py
 
 .PHONY: test-throughput-smoke
 test-throughput-smoke: ## Run step_many throughput regression smoke test
-	uv run --extra dev --extra grpc pytest -q tests/integration_tests/test_step_many_throughput.py
+	uv run --frozen --extra dev --extra grpc pytest -q tests/integration_tests/test_step_many_throughput.py
 
 .PHONY: smoke-api-grpc
 smoke-api-grpc: ## Run docker-compose HTTP + gRPC smoke test

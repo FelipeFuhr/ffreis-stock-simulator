@@ -4,6 +4,7 @@ services:
       context: ..
       dockerfile: container/Dockerfile
     image: ${IMAGE_ROOT:-ffreis}-stock-simulator:${IMAGE_TAG:-api-grpc-smoke}
+    pull_policy: never
     command:
       - python
       - -m
@@ -26,6 +27,7 @@ services:
 
   simulator-grpc:
     image: ${IMAGE_ROOT:-ffreis}-stock-simulator:${IMAGE_TAG:-api-grpc-smoke}
+    pull_policy: never
     command:
       - python
       - -m
@@ -42,6 +44,7 @@ services:
 
   smoke:
     image: ${IMAGE_ROOT:-ffreis}-stock-simulator:${IMAGE_TAG:-api-grpc-smoke}
+    pull_policy: never
     depends_on:
       simulator-api:
         condition: service_healthy
