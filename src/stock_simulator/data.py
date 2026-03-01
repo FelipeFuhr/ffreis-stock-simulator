@@ -1,7 +1,7 @@
 from __future__ import annotations
 
-import numpy as np
-import pandas as pd
+from numpy import float32 as np_float32, object_ as np_object_
+from pandas import DataFrame as pd_DataFrame, read_csv as pd_read_csv
 from numpy.typing import NDArray
 
 
@@ -15,13 +15,13 @@ class MarketData:
         ``close``, and ``volume``.
     """
 
-    def __init__(self, df: pd.DataFrame):
-        self.ts: NDArray[np.object_] = df["timestamp"].to_numpy()
-        self.open: NDArray[np.float32] = df["open"].to_numpy(dtype=np.float32)
-        self.high: NDArray[np.float32] = df["high"].to_numpy(dtype=np.float32)
-        self.low: NDArray[np.float32] = df["low"].to_numpy(dtype=np.float32)
-        self.close: NDArray[np.float32] = df["close"].to_numpy(dtype=np.float32)
-        self.volume: NDArray[np.float32] = df["volume"].to_numpy(dtype=np.float32)
+    def __init__(self, df: pd_DataFrame):
+        self.ts: NDArray[np_object_] = df["timestamp"].to_numpy()
+        self.open: NDArray[np_float32] = df["open"].to_numpy(dtype=np_float32)
+        self.high: NDArray[np_float32] = df["high"].to_numpy(dtype=np_float32)
+        self.low: NDArray[np_float32] = df["low"].to_numpy(dtype=np_float32)
+        self.close: NDArray[np_float32] = df["close"].to_numpy(dtype=np_float32)
+        self.volume: NDArray[np_float32] = df["volume"].to_numpy(dtype=np_float32)
         self.n: int = len(df)
 
     @classmethod
@@ -38,5 +38,5 @@ class MarketData:
         MarketData
             Parsed market data container.
         """
-        df = pd.read_csv(path)
+        df = pd_read_csv(path)
         return cls(df)

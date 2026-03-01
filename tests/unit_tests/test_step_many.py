@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from collections.abc import Callable
 
-import numpy as np
+from numpy import asarray as np_asarray, bool_ as np_bool_, float64 as np_float64, ndarray as np_ndarray, testing as np_testing
 from numpy.typing import NDArray
 
 from stock_simulator.config import GameConfig
@@ -13,7 +13,7 @@ from stock_simulator.types import Action
 
 def test_step_many_shapes_and_step_parity(
     market_data_factory: Callable[..., MarketData],
-    encode_actions: Callable[[list[Action]], NDArray[np.float64]],
+    encode_actions: Callable[[list[Action]], NDArray[np_float64]],
 ) -> None:
     actions = [
         Action(side="hold"),
@@ -43,9 +43,9 @@ def test_step_many_shapes_and_step_parity(
 
     rewards_seq: list[float] = []
     dones_seq: list[bool] = []
-    portfolio_seq: list[np.ndarray] = []
-    market_seq: list[np.ndarray] = []
-    orders_seq: list[np.ndarray] = []
+    portfolio_seq: list[np_ndarray] = []
+    market_seq: list[np_ndarray] = []
+    orders_seq: list[np_ndarray] = []
     for action in actions:
         result = env_seq.step(action)
         rewards_seq.append(result.observation.equity - prev_equity)
@@ -62,17 +62,17 @@ def test_step_many_shapes_and_step_parity(
     assert rewards_many.shape == (len(actions),)
     assert dones_many.shape == (len(actions),)
 
-    np.testing.assert_allclose(
+    np_testing.assert_allclose(
         obs_stack["market_window_handle"],
-        np.asarray(market_seq, dtype=np.float64),
+        np_asarray(market_seq, dtype=np_float64),
     )
-    np.testing.assert_allclose(
+    np_testing.assert_allclose(
         obs_stack["portfolio_vector"],
-        np.asarray(portfolio_seq, dtype=np.float64),
+        np_asarray(portfolio_seq, dtype=np_float64),
     )
-    np.testing.assert_allclose(
+    np_testing.assert_allclose(
         obs_stack["order_summary_vector"],
-        np.asarray(orders_seq, dtype=np.float64),
+        np_asarray(orders_seq, dtype=np_float64),
     )
-    np.testing.assert_array_equal(dones_many, np.asarray(dones_seq, dtype=np.bool_))
-    np.testing.assert_allclose(rewards_many, np.asarray(rewards_seq, dtype=np.float64))
+    np_testing.assert_array_equal(dones_many, np_asarray(dones_seq, dtype=np_bool_))
+    np_testing.assert_allclose(rewards_many, np_asarray(rewards_seq, dtype=np_float64))

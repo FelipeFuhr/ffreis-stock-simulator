@@ -6,7 +6,7 @@ cd "${ROOT_DIR}"
 
 "${ROOT_DIR}/scripts/generate_grpc_stubs.sh"
 
-if [ ! -s src/stocksim_grpc/engine_pb2.py ] || [ ! -s src/stocksim_grpc/engine_pb2_grpc.py ]; then
+if [[ ! -s src/stocksim_grpc/engine_pb2.py ]] || [[ ! -s src/stocksim_grpc/engine_pb2_grpc.py ]]; then
   echo "gRPC stub generation failed: expected generated files are missing."
   exit 1
 fi

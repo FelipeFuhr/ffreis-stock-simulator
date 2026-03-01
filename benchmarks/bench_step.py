@@ -1,14 +1,14 @@
 from __future__ import annotations
 
-import argparse
-import os
-import sys
-import time
+from argparse import ArgumentParser as argparse_ArgumentParser, Namespace as argparse_Namespace
+from os import getenv as os_getenv
+from sys import path as sys_path
+from time import perf_counter as time_perf_counter
 from pathlib import Path
 from typing import TYPE_CHECKING
 
-import numpy as np
-import pandas as pd
+from numpy import asarray as np_asarray, cumprod as np_cumprod, float32 as np_float32, float64 as np_float64, maximum as np_maximum, minimum as np_minimum, roll as np_roll
+from pandas import date_range as pd_date_range
 from numpy.random import default_rng
 
 if TYPE_CHECKING:
@@ -18,8 +18,8 @@ if TYPE_CHECKING:
 
 ROOT = Path(__file__).resolve().parents[1]
 SRC_DIR = ROOT / "src"
-if str(SRC_DIR) not in sys.path:
-    sys.path.insert(0, str(SRC_DIR))
+if str(SRC_DIR) not in sys_path:
+    sys_path.insert(0, str(SRC_DIR))
 
 DEFAULT_TOTAL_STEPS = 1_000_000
 DEFAULT_SERIES_LENGTH = 4096
@@ -30,20 +30,20 @@ def _build_market_arrays(n: int, seed: int) -> MarketArrays:
 
     rng = default_rng(seed)
     returns = rng.normal(loc=0.0001, scale=0.01, size=n)
-    close = 100.0 * np.cumprod(1.0 + returns)
-    open_ = np.roll(close, 1)
+    close = 100.0 * np_cumprod(1.0 + returns)
+    open_ = np_roll(close, 1)
     open_[0] = close[0]
     spread = rng.uniform(0.0003, 0.01, size=n)
-    high = np.maximum(open_, close) * (1.0 + spread)
-    low = np.minimum(open_, close) * (1.0 - spread)
+    high = np_maximum(open_, close) * (1.0 + spread)
+    low = np_minimum(open_, close) * (1.0 - spread)
     volume = rng.uniform(10_000.0, 100_000.0, size=n)
-    ts = pd.date_range("2024-01-01", periods=n, freq="h")
+    ts = pd_date_range("2024-01-01", periods=n, freq="h")
     _ = ts, volume  # keep generation closer to real app path
     return MarketArrays(
-        open=np.asarray(open_, dtype=np.float32),
-        high=np.asarray(high, dtype=np.float32),
-        low=np.asarray(low, dtype=np.float32),
-        close=np.asarray(close, dtype=np.float32),
+        open=np_asarray(open_, dtype=np_float32),
+        high=np_asarray(high, dtype=np_float32),
+        low=np_asarray(low, dtype=np_float32),
+        close=np_asarray(close, dtype=np_float32),
         n=n,
     )
 
@@ -70,14 +70,14 @@ def _run_pure_python(
 
     state = initial_core_state(cfg.initial_cash, max_orders=cfg.max_open_orders)
     rng = default_rng(cfg.seed)
-    start = time.perf_counter()
+    start = time_perf_counter()
     for i in range(total_steps):
         action = actions[i % len(actions)]
         random_draws = rng.uniform(
             cfg.partial_fill_min,
             cfg.partial_fill_max,
             size=cfg.max_open_orders,
-        ).astype(np.float64, copy=False)
+        ).astype(np_float64, copy=False)
         output = step_core(
             state=state,
             action=action,
@@ -88,7 +88,7 @@ def _run_pure_python(
         state = output.state
         if state.done:
             state = initial_core_state(cfg.initial_cash, max_orders=cfg.max_open_orders)
-    elapsed = time.perf_counter() - start
+    elapsed = time_perf_counter() - start
     return total_steps / elapsed
 
 
@@ -108,7 +108,7 @@ def _run_numba(
         cfg.partial_fill_min,
         cfg.partial_fill_max,
         size=cfg.max_open_orders,
-    ).astype(np.float64, copy=False)
+    ).astype(np_float64, copy=False)
     _ = step_core_numba(
         state=state,
         action=actions[0],
@@ -119,14 +119,14 @@ def _run_numba(
 
     state = initial_core_state(cfg.initial_cash, max_orders=cfg.max_open_orders)
     rng = default_rng(cfg.seed)
-    start = time.perf_counter()
+    start = time_perf_counter()
     for i in range(total_steps):
         action = actions[i % len(actions)]
         random_draws = rng.uniform(
             cfg.partial_fill_min,
             cfg.partial_fill_max,
             size=cfg.max_open_orders,
-        ).astype(np.float64, copy=False)
+        ).astype(np_float64, copy=False)
         output = step_core_numba(
             state=state,
             action=action,
@@ -137,21 +137,21 @@ def _run_numba(
         state = output.state
         if state.done:
             state = initial_core_state(cfg.initial_cash, max_orders=cfg.max_open_orders)
-    elapsed = time.perf_counter() - start
+    elapsed = time_perf_counter() - start
     return total_steps / elapsed
 
 
-def _parse_args() -> argparse.Namespace:
-    parser = argparse.ArgumentParser(description="Step-core throughput benchmark.")
+def _parse_args() -> argparse_Namespace:
+    parser = argparse_ArgumentParser(description="Step-core throughput benchmark.")
     parser.add_argument(
         "--steps",
         type=int,
-        default=int(os.getenv("BENCH_STEPS", str(DEFAULT_TOTAL_STEPS))),
+        default=int(os_getenv("BENCH_STEPS", str(DEFAULT_TOTAL_STEPS))),
     )
     parser.add_argument(
         "--series-length",
         type=int,
-        default=int(os.getenv("BENCH_SERIES_LENGTH", str(DEFAULT_SERIES_LENGTH))),
+        default=int(os_getenv("BENCH_SERIES_LENGTH", str(DEFAULT_SERIES_LENGTH))),
     )
     parser.add_argument("--seed", type=int, default=1234)
     return parser.parse_args()

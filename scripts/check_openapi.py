@@ -3,23 +3,23 @@
 
 from __future__ import annotations
 
-import json
-import sys
+from json import dumps as json_dumps
+from sys import path as sys_path
 from pathlib import Path
 
-import yaml
+from yaml import safe_load as yaml_safe_load
 from openapi_spec_validator import validate_spec
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
 SRC_DIR = REPO_ROOT / "src"
-if str(SRC_DIR) not in sys.path:
-    sys.path.insert(0, str(SRC_DIR))
+if str(SRC_DIR) not in sys_path:
+    sys_path.insert(0, str(SRC_DIR))
 
 from stock_simulator.server import create_app  # noqa: E402
 
 
 def _load_spec(path: Path) -> dict[str, object]:
-    loaded = yaml.safe_load(path.read_text(encoding="utf-8"))
+    loaded = yaml_safe_load(path.read_text(encoding="utf-8"))
     if not isinstance(loaded, dict):
         raise RuntimeError(f"Expected OpenAPI mapping at {path}")
     return loaded
@@ -30,25 +30,31 @@ def _assert_unique_operation_ids(spec: dict[str, object]) -> None:
     if not isinstance(paths, dict):
         raise RuntimeError("OpenAPI 'paths' must be an object")
     seen: set[str] = set()
+    for operation in _iter_operations(paths):
+        operation_id = operation.get("operationId")
+        if isinstance(operation_id, str):
+            if operation_id in seen:
+                raise RuntimeError(f"Duplicate operationId: {operation_id}")
+            seen.add(operation_id)
+
+
+def _iter_operations(paths: dict[str, object]) -> list[dict[str, object]]:
+    operations: list[dict[str, object]] = []
     for path_item in paths.values():
         if not isinstance(path_item, dict):
             continue
         for operation in path_item.values():
-            if not isinstance(operation, dict):
-                continue
-            operation_id = operation.get("operationId")
-            if isinstance(operation_id, str):
-                if operation_id in seen:
-                    raise RuntimeError(f"Duplicate operationId: {operation_id}")
-                seen.add(operation_id)
+            if isinstance(operation, dict):
+                operations.append(operation)
+    return operations
 
 
 def _assert_runtime_matches_file(spec: dict[str, object]) -> None:
     generated = create_app().openapi()
     if generated == spec:
         return
-    expected = json.dumps(spec, indent=2, sort_keys=True)
-    actual = json.dumps(generated, indent=2, sort_keys=True)
+    expected = json_dumps(spec, indent=2, sort_keys=True)
+    actual = json_dumps(generated, indent=2, sort_keys=True)
     raise RuntimeError(
         "Runtime OpenAPI schema differs from docs/openapi.yaml.\n"
         "Update routes/openapi settings or refresh docs/openapi.yaml.\n"

@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-import numpy as np
+from numpy import bool_ as np_bool_, float64 as np_float64, int8 as np_int8, isnan as np_isnan, zeros as np_zeros
 from numpy.random import default_rng
 from numpy.typing import NDArray
 
@@ -187,8 +187,8 @@ class MarketEnv:
             return StepResult(state=state, observation=observation, done=self._core_state.done)
 
     def step_many(
-        self, actions: NDArray[np.float64]
-    ) -> tuple[dict[str, NDArray[np.float64]], NDArray[np.float64], NDArray[np.bool_]]:
+        self, actions: NDArray[np_float64]
+    ) -> tuple[dict[str, NDArray[np_float64]], NDArray[np_float64], NDArray[np_bool_]]:
         """Execute multiple encoded actions in a tight loop.
 
         Parameters
@@ -206,16 +206,16 @@ class MarketEnv:
             raise ValueError("actions must have shape [num_steps, 4]")
 
         num_steps = int(actions.shape[0])
-        market_handles = np.zeros((num_steps, 4), dtype=np.float64)
-        portfolio_vectors = np.zeros((num_steps, 4), dtype=np.float64)
-        order_summary_vectors = np.zeros((num_steps, 3), dtype=np.float64)
-        rewards = np.zeros(num_steps, dtype=np.float64)
-        dones = np.zeros(num_steps, dtype=np.bool_)
+        market_handles = np_zeros((num_steps, 4), dtype=np_float64)
+        portfolio_vectors = np_zeros((num_steps, 4), dtype=np_float64)
+        order_summary_vectors = np_zeros((num_steps, 3), dtype=np_float64)
+        rewards = np_zeros(num_steps, dtype=np_float64)
+        dones = np_zeros(num_steps, dtype=np_bool_)
         random_draws_batch = self._rng.uniform(
             self._cfg.partial_fill_min,
             self._cfg.partial_fill_max,
             size=(num_steps, self._cfg.max_open_orders),
-        ).astype(np.float64, copy=False)
+        ).astype(np_float64, copy=False)
 
         # Intentionally bypass telemetry/recorder callbacks for headless bulk execution.
         for i in range(num_steps):
@@ -255,11 +255,11 @@ class MarketEnv:
                     order_limit_price=self._core_state.order_limit_price,
                     order_eligible_t=self._core_state.order_eligible_t,
                     order_ttl=self._core_state.order_ttl,
-                    action_side=np.int8(int(action_side_code)),
+                    action_side=np_int8(int(action_side_code)),
                     action_units=float(action_units),
-                    action_order_type=np.int8(int(action_order_code)),
+                    action_order_type=np_int8(int(action_order_code)),
                     action_limit_price=(
-                        0.0 if np.isnan(action_limit) else float(action_limit)
+                        0.0 if np_isnan(action_limit) else float(action_limit)
                     ),
                     market_open=self._market_arrays.open,
                     market_high=self._market_arrays.high,
@@ -345,18 +345,18 @@ class MarketEnv:
             done=state.done,
         )
 
-    def _next_random_draws(self) -> NDArray[np.float64]:
+    def _next_random_draws(self) -> NDArray[np_float64]:
         return self._rng.uniform(
             self._cfg.partial_fill_min,
             self._cfg.partial_fill_max,
             size=self._cfg.max_open_orders,
-        ).astype(np.float64, copy=False)
+        ).astype(np_float64, copy=False)
 
-    def _action_from_encoded_row(self, row: NDArray[np.float64]) -> Action:
+    def _action_from_encoded_row(self, row: NDArray[np_float64]) -> Action:
         side_code = int(row[0])
         units = float(row[1])
         order_code = int(row[2])
-        limit_price = None if np.isnan(row[3]) else float(row[3])
+        limit_price = None if np_isnan(row[3]) else float(row[3])
 
         if side_code == 0:
             return Action(side="hold")

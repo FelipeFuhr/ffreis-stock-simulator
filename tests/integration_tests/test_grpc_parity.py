@@ -1,11 +1,11 @@
 from __future__ import annotations
 
 from collections.abc import Callable
-import os
+from os import getenv as os_getenv
 from typing import Protocol, cast
 
-import numpy as np
-import pytest
+from numpy import array as np_array, asarray as np_asarray, bool_ as np_bool_, float64 as np_float64, isnan as np_isnan, nan as np_nan, testing as np_testing
+from pytest import mark as pytest_mark, skip as pytest_skip
 from hypothesis import HealthCheck, given, settings
 from hypothesis import strategies as st
 from numpy.typing import NDArray
@@ -19,8 +19,8 @@ from stock_simulator.types import Action, EnvStateModel, MarketWindowViewHandleM
 try:
     from stock_simulator.grpc.server import EngineGrpcService
     from stocksim_grpc import engine_pb2 as _engine_pb2
-except (ImportError, ModuleNotFoundError) as exc:
-    pytest.skip(f"grpc parity dependencies unavailable: {exc}", allow_module_level=True)
+except ImportError as exc:
+    pytest_skip(f"grpc parity dependencies unavailable: {exc}", allow_module_level=True)
 
 
 class _MethodLike(Protocol):
@@ -123,10 +123,10 @@ _HTTP_TO_GRPC_SURFACE_MAP: dict[str, str] = {
 }
 _UNMAPPED_HTTP_PATHS: set[str] = {"/readyz"}
 _UNMAPPED_GRPC_METHODS: set[str] = set()
-_HYPOTHESIS_MAX_EXAMPLES = int(os.getenv("HYPOTHESIS_MAX_EXAMPLES", "25"))
+_HYPOTHESIS_MAX_EXAMPLES = int(os_getenv("HYPOTHESIS_MAX_EXAMPLES", "25"))
 
 
-def _build_step_many_request(actions: NDArray[np.float64]) -> _StepManyRequestLike:
+def _build_step_many_request(actions: NDArray[np_float64]) -> _StepManyRequestLike:
     encoded: list[_EncodedActionLike] = []
     for row in actions:
         encoded.append(
@@ -134,8 +134,8 @@ def _build_step_many_request(actions: NDArray[np.float64]) -> _StepManyRequestLi
                 side_code=int(row[0]),
                 units=float(row[1]),
                 order_type_code=int(row[2]),
-                has_limit_price=not np.isnan(row[3]),
-                limit_price=0.0 if np.isnan(row[3]) else float(row[3]),
+                has_limit_price=not np_isnan(row[3]),
+                limit_price=0.0 if np_isnan(row[3]) else float(row[3]),
             )
         )
     return engine_pb2.StepManyRequest(actions=encoded)
@@ -144,13 +144,13 @@ def _build_step_many_request(actions: NDArray[np.float64]) -> _StepManyRequestLi
 def _grpc_reply_to_arrays(
     reply: _StepManyReplyLike,
 ) -> tuple[
-    NDArray[np.float64],
-    NDArray[np.float64],
-    NDArray[np.float64],
-    NDArray[np.float64],
-    NDArray[np.bool_],
+    NDArray[np_float64],
+    NDArray[np_float64],
+    NDArray[np_float64],
+    NDArray[np_float64],
+    NDArray[np_bool_],
 ]:
-    market = np.asarray(
+    market = np_asarray(
         [
             [
                 float(o.market_window_handle.start),
@@ -160,12 +160,12 @@ def _grpc_reply_to_arrays(
             ]
             for o in reply.observations
         ],
-        dtype=np.float64,
+        dtype=np_float64,
     )
-    portfolio = np.asarray([o.portfolio_vector for o in reply.observations], dtype=np.float64)
-    orders = np.asarray([o.order_summary_vector for o in reply.observations], dtype=np.float64)
-    rewards = np.asarray(reply.rewards, dtype=np.float64)
-    dones = np.asarray(reply.dones, dtype=np.bool_)
+    portfolio = np_asarray([o.portfolio_vector for o in reply.observations], dtype=np_float64)
+    orders = np_asarray([o.order_summary_vector for o in reply.observations], dtype=np_float64)
+    rewards = np_asarray(reply.rewards, dtype=np_float64)
+    dones = np_asarray(reply.dones, dtype=np_bool_)
     return market, portfolio, orders, rewards, dones
 
 
@@ -229,7 +229,7 @@ def test_contract_parity_for_step_many_request_payload() -> None:
 
 def test_grpc_service_matches_env_behavior(
     market_data_factory: Callable[..., MarketData],
-    encode_actions: Callable[[list[Action]], NDArray[np.float64]],
+    encode_actions: Callable[[list[Action]], NDArray[np_float64]],
 ) -> None:
     data = market_data_factory(n=256, slope=0.15, spread=0.2, volume=15_000.0)
     cfg = GameConfig(seed=4242, use_numba=False)
@@ -252,23 +252,23 @@ def test_grpc_service_matches_env_behavior(
 
     direct_obs = env_direct.observe()
     grpc_obs = grpc_service.Observe(engine_pb2.ObserveRequest(), None).observation
-    grpc_market_vec = np.array(
+    grpc_market_vec = np_array(
         [
             grpc_obs.market_window_handle.start,
             grpc_obs.market_window_handle.end,
             grpc_obs.market_window_handle.t,
             grpc_obs.market_window_handle.current_price,
         ],
-        dtype=np.float64,
+        dtype=np_float64,
     )
-    np.testing.assert_allclose(direct_obs.market.to_numpy(), grpc_market_vec)
-    np.testing.assert_allclose(
+    np_testing.assert_allclose(direct_obs.market.to_numpy(), grpc_market_vec)
+    np_testing.assert_allclose(
         direct_obs.portfolio_vector,
-        np.asarray(grpc_obs.portfolio_vector, dtype=np.float64),
+        np_asarray(grpc_obs.portfolio_vector, dtype=np_float64),
     )
-    np.testing.assert_allclose(
+    np_testing.assert_allclose(
         direct_obs.order_summary_vector,
-        np.asarray(grpc_obs.order_summary_vector, dtype=np.float64),
+        np_asarray(grpc_obs.order_summary_vector, dtype=np_float64),
     )
     assert direct_obs.done == grpc_obs.done
 
@@ -286,14 +286,14 @@ def test_grpc_service_matches_env_behavior(
 
     grpc_market, grpc_portfolio, grpc_orders, grpc_rewards, grpc_dones = _grpc_reply_to_arrays(grpc_reply)
 
-    np.testing.assert_allclose(direct_obs_stack["market_window_handle"], grpc_market)
-    np.testing.assert_allclose(direct_obs_stack["portfolio_vector"], grpc_portfolio)
-    np.testing.assert_allclose(direct_obs_stack["order_summary_vector"], grpc_orders)
-    np.testing.assert_allclose(direct_rewards, grpc_rewards)
-    np.testing.assert_array_equal(direct_dones, grpc_dones)
+    np_testing.assert_allclose(direct_obs_stack["market_window_handle"], grpc_market)
+    np_testing.assert_allclose(direct_obs_stack["portfolio_vector"], grpc_portfolio)
+    np_testing.assert_allclose(direct_obs_stack["order_summary_vector"], grpc_orders)
+    np_testing.assert_allclose(direct_rewards, grpc_rewards)
+    np_testing.assert_array_equal(direct_dones, grpc_dones)
 
 
-@pytest.mark.property
+@pytest_mark.property
 @settings(
     max_examples=_HYPOTHESIS_MAX_EXAMPLES,
     deadline=None,
@@ -325,7 +325,7 @@ def test_grpc_service_matches_env_behavior(
 def test_property_based_behavior_parity(
     actions: list[Action],
     market_data_factory: Callable[..., MarketData],
-    encode_actions: Callable[[list[Action]], NDArray[np.float64]],
+    encode_actions: Callable[[list[Action]], NDArray[np_float64]],
 ) -> None:
     data = market_data_factory(n=512, slope=0.07, spread=0.25, volume=18_000.0)
     cfg = GameConfig(seed=3030, use_numba=False)
@@ -342,11 +342,11 @@ def test_property_based_behavior_parity(
     grpc_reply = grpc_service.StepMany(_build_step_many_request(encoded), None)
     grpc_market, grpc_portfolio, grpc_orders, grpc_rewards, grpc_dones = _grpc_reply_to_arrays(grpc_reply)
 
-    np.testing.assert_allclose(direct_obs_stack["market_window_handle"], grpc_market, rtol=1e-7, atol=1e-9)
-    np.testing.assert_allclose(direct_obs_stack["portfolio_vector"], grpc_portfolio, rtol=1e-7, atol=1e-9)
-    np.testing.assert_allclose(direct_obs_stack["order_summary_vector"], grpc_orders, rtol=1e-7, atol=1e-9)
-    np.testing.assert_allclose(direct_rewards, grpc_rewards, rtol=1e-7, atol=1e-9)
-    np.testing.assert_array_equal(direct_dones, grpc_dones)
+    np_testing.assert_allclose(direct_obs_stack["market_window_handle"], grpc_market, rtol=1e-7, atol=1e-9)
+    np_testing.assert_allclose(direct_obs_stack["portfolio_vector"], grpc_portfolio, rtol=1e-7, atol=1e-9)
+    np_testing.assert_allclose(direct_obs_stack["order_summary_vector"], grpc_orders, rtol=1e-7, atol=1e-9)
+    np_testing.assert_allclose(direct_rewards, grpc_rewards, rtol=1e-7, atol=1e-9)
+    np_testing.assert_array_equal(direct_dones, grpc_dones)
 
 
 def test_error_parity_for_invalid_order_type_code(
@@ -361,7 +361,7 @@ def test_error_parity_for_invalid_order_type_code(
     env_direct.reset(seed=77)
     grpc_service.Reset(engine_pb2.ResetRequest(has_seed=True, seed=77), None)
 
-    invalid_actions = np.asarray([[1.0, 1.0, 2.0, np.nan]], dtype=np.float64)
+    invalid_actions = np_asarray([[1.0, 1.0, 2.0, np_nan]], dtype=np_float64)
     request = _build_step_many_request(invalid_actions)
 
     try:

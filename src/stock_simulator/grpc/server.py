@@ -1,15 +1,15 @@
 from __future__ import annotations
 
-import argparse
-import importlib
-import os
+from argparse import ArgumentParser as argparse_ArgumentParser
+from importlib import import_module as importlib_import_module
+from os import getenv as os_getenv
 from concurrent import futures
 from types import ModuleType
 from typing import Protocol, cast
 
-import grpc
-import numpy as np
-import pandas as pd
+from grpc import Server as grpc_Server, ServicerContext as grpc_ServicerContext, StatusCode as grpc_StatusCode, server as grpc_server
+from numpy import asarray as np_asarray, cumprod as np_cumprod, float64 as np_float64, maximum as np_maximum, minimum as np_minimum, nan as np_nan, random as np_random, roll as np_roll
+from pandas import DataFrame as pd_DataFrame, date_range as pd_date_range
 from numpy.typing import NDArray
 
 from ..config import GameConfig
@@ -22,16 +22,24 @@ class ProtoMessage(Protocol):
     """Marker protocol for protobuf request/response objects."""
 
 
-def _load_grpc_module(module_name: str) -> ModuleType | None:
-    """Load generated grpc module by name when present."""
+def _load_engine_pb2_module() -> ModuleType | None:
+    """Load generated protobuf messages module when present."""
     try:
-        return importlib.import_module(module_name)
+        return importlib_import_module("stocksim_grpc.engine_pb2")
     except ModuleNotFoundError:
         return None
 
 
-engine_pb2 = _load_grpc_module("stocksim_grpc.engine_pb2")
-engine_pb2_grpc = _load_grpc_module("stocksim_grpc.engine_pb2_grpc")
+def _load_engine_pb2_grpc_module() -> ModuleType | None:
+    """Load generated gRPC stubs module when present."""
+    try:
+        return importlib_import_module("stocksim_grpc.engine_pb2_grpc")
+    except ModuleNotFoundError:
+        return None
+
+
+engine_pb2 = _load_engine_pb2_module()
+engine_pb2_grpc = _load_engine_pb2_grpc_module()
 
 
 class _MarketWindowFactory(Protocol):
@@ -116,7 +124,7 @@ class _RequestWithActions(Protocol):
 
 class _GrpcStubsProtocol(Protocol):
     def add_EngineServiceServicer_to_server(
-        self, servicer: EngineGrpcService, server: grpc.Server
+        self, servicer: EngineGrpcService, server: grpc_Server
     ) -> None: ...
 
 
@@ -139,17 +147,17 @@ def _require_engine_pb2_grpc() -> _GrpcStubsProtocol:
 
 
 def _build_synthetic_market_data(bars: int = 1024, seed: int = 1234) -> MarketData:
-    rng = np.random.default_rng(seed)
+    rng = np_random.default_rng(seed)
     returns = rng.normal(loc=0.0001, scale=0.01, size=bars)
-    close = 100.0 * np.cumprod(1.0 + returns)
-    open_ = np.roll(close, 1)
+    close = 100.0 * np_cumprod(1.0 + returns)
+    open_ = np_roll(close, 1)
     open_[0] = close[0]
     spread = rng.uniform(0.0002, 0.01, size=bars)
-    high = np.maximum(open_, close) * (1.0 + spread)
-    low = np.minimum(open_, close) * (1.0 - spread)
-    frame = pd.DataFrame(
+    high = np_maximum(open_, close) * (1.0 + spread)
+    low = np_minimum(open_, close) * (1.0 - spread)
+    frame = pd_DataFrame(
         {
-            "timestamp": pd.date_range("2024-01-01", periods=bars, freq="h"),
+            "timestamp": pd_date_range("2024-01-01", periods=bars, freq="h"),
             "open": open_,
             "high": high,
             "low": low,
@@ -161,11 +169,11 @@ def _build_synthetic_market_data(bars: int = 1024, seed: int = 1234) -> MarketDa
 
 
 def _load_market_data() -> MarketData:
-    csv_path = os.getenv("MARKET_DATA_CSV", "").strip()
+    csv_path = os_getenv("MARKET_DATA_CSV", "").strip()
     if csv_path:
         return MarketData.from_csv(csv_path)
-    bars = int(os.getenv("IPC_SYNTHETIC_BARS", "1024"))
-    seed = int(os.getenv("IPC_SYNTHETIC_SEED", "1234"))
+    bars = int(os_getenv("IPC_SYNTHETIC_BARS", "1024"))
+    seed = int(os_getenv("IPC_SYNTHETIC_SEED", "1234"))
     return _build_synthetic_market_data(bars=bars, seed=seed)
 
 
@@ -198,35 +206,48 @@ def _state_to_proto(state: EnvState) -> ProtoMessage:
 
 
 class EngineGrpcService:
+    _RPC_NAME_MAP: dict[str, str] = {
+        "Ping": "ping",
+        "Reset": "reset",
+        "Observe": "observe",
+        "StepMany": "step_many",
+    }
+
     def __init__(self, env: MarketEnv) -> None:
         self._env = env
 
-    def Ping(self, request: ProtoMessage, context: grpc.ServicerContext) -> ProtoMessage:  # noqa: N802
+    def __getattr__(self, name: str) -> object:
+        method_name = self._RPC_NAME_MAP.get(name)
+        if method_name is None:
+            raise AttributeError(f"{type(self).__name__!s} has no attribute {name!r}")
+        return getattr(self, method_name)
+
+    def ping(self, request: ProtoMessage, context: grpc_ServicerContext) -> ProtoMessage:
         _ = (request, context)
         pb2 = _require_engine_pb2()
         return pb2.PingResponse(status="pong")
 
-    def Reset(self, request: _RequestWithSeed, context: grpc.ServicerContext) -> ProtoMessage:  # noqa: N802
+    def reset(self, request: _RequestWithSeed, context: grpc_ServicerContext) -> ProtoMessage:
         _ = context
         pb2 = _require_engine_pb2()
         seed: int | None = int(request.seed) if request.has_seed else None
         state = self._env.reset(seed=seed)
         return pb2.ResetResponse(state=_state_to_proto(state))
 
-    def Observe(self, request: ProtoMessage, context: grpc.ServicerContext) -> ProtoMessage:  # noqa: N802
+    def observe(self, request: ProtoMessage, context: grpc_ServicerContext) -> ProtoMessage:
         _ = (request, context)
         pb2 = _require_engine_pb2()
         observation = self._env.observe()
         return pb2.ObserveResponse(observation=_observation_to_proto(observation))
 
-    def StepMany(self, request: _RequestWithActions, context: grpc.ServicerContext) -> ProtoMessage:  # noqa: N802
+    def step_many(self, request: _RequestWithActions, context: grpc_ServicerContext) -> ProtoMessage:
         pb2 = _require_engine_pb2()
         if len(request.actions) == 0:
             return pb2.StepManyResponse()
 
         rows: list[list[float]] = []
         for action in request.actions:
-            limit_price = action.limit_price if action.has_limit_price else np.nan
+            limit_price = action.limit_price if action.has_limit_price else np_nan
             rows.append(
                 [
                     float(action.side_code),
@@ -235,11 +256,11 @@ class EngineGrpcService:
                     float(limit_price),
                 ]
             )
-        actions_matrix: NDArray[np.float64] = np.asarray(rows, dtype=np.float64)
+        actions_matrix: NDArray[np_float64] = np_asarray(rows, dtype=np_float64)
         try:
             observations, rewards, dones = self._env.step_many(actions_matrix)
         except ValueError as exc:
-            context.abort(grpc.StatusCode.INVALID_ARGUMENT, str(exc))
+            context.abort(grpc_StatusCode.INVALID_ARGUMENT, str(exc))
             raise AssertionError("context.abort should raise") from exc
 
         observation_rows: list[ProtoMessage] = []
@@ -272,13 +293,13 @@ def create_server(
     cfg: GameConfig | None = None,
     data: MarketData | None = None,
     max_workers: int = 16,
-) -> grpc.Server:
-    config = cfg if cfg is not None else GameConfig.load(yaml_path=os.getenv("STOCK_SIM_CONFIG_YAML"))
+) -> grpc_Server:
+    config = cfg if cfg is not None else GameConfig.load(yaml_path=os_getenv("STOCK_SIM_CONFIG_YAML"))
     market_data = data if data is not None else _load_market_data()
     env = MarketEnv(data=market_data, cfg=config)
     env.reset(seed=config.seed)
 
-    server = grpc.server(futures.ThreadPoolExecutor(max_workers=max_workers))
+    server = grpc_server(futures.ThreadPoolExecutor(max_workers=max_workers))
     pb2_grpc = _require_engine_pb2_grpc()
     pb2_grpc.add_EngineServiceServicer_to_server(EngineGrpcService(env), server)
     server.add_insecure_port(f"{host}:{port}")
@@ -286,9 +307,9 @@ def create_server(
 
 
 def main() -> None:
-    parser = argparse.ArgumentParser(description="gRPC interface for stock simulator.")
-    parser.add_argument("--host", default=os.getenv("GRPC_HOST", "0.0.0.0"))
-    parser.add_argument("--port", type=int, default=int(os.getenv("GRPC_PORT", "50051")))
+    parser = argparse_ArgumentParser(description="gRPC interface for stock simulator.")
+    parser.add_argument("--host", default=os_getenv("GRPC_HOST", "0.0.0.0"))
+    parser.add_argument("--port", type=int, default=int(os_getenv("GRPC_PORT", "50051")))
     parser.add_argument("--max-workers", type=int, default=16)
     parser.add_argument("--use-numba", action="store_true")
     parser.add_argument("--seed", type=int, default=1234)

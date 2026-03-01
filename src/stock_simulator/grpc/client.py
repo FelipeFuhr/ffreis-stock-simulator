@@ -1,11 +1,11 @@
 from __future__ import annotations
 
-import importlib
+from importlib import import_module as importlib_import_module
 from types import ModuleType
 from typing import Protocol, TypeAlias, cast
 
-import grpc
-import numpy as np
+from grpc import Channel as grpc_Channel, insecure_channel as grpc_insecure_channel
+from numpy import asarray as np_asarray, bool_ as np_bool_, float64 as np_float64, isnan as np_isnan
 from numpy.typing import NDArray
 
 ObservationDict: TypeAlias = dict[
@@ -18,16 +18,24 @@ class ProtoMessage(Protocol):
     """Marker protocol for protobuf request/response objects."""
 
 
-def _load_grpc_module(module_name: str) -> ModuleType | None:
-    """Load generated grpc module by name when present."""
+def _load_engine_pb2_module() -> ModuleType | None:
+    """Load generated protobuf messages module when present."""
     try:
-        return importlib.import_module(module_name)
+        return importlib_import_module("stocksim_grpc.engine_pb2")
     except ModuleNotFoundError:
         return None
 
 
-engine_pb2 = _load_grpc_module("stocksim_grpc.engine_pb2")
-engine_pb2_grpc = _load_grpc_module("stocksim_grpc.engine_pb2_grpc")
+def _load_engine_pb2_grpc_module() -> ModuleType | None:
+    """Load generated gRPC stubs module when present."""
+    try:
+        return importlib_import_module("stocksim_grpc.engine_pb2_grpc")
+    except ModuleNotFoundError:
+        return None
+
+
+engine_pb2 = _load_engine_pb2_module()
+engine_pb2_grpc = _load_engine_pb2_grpc_module()
 
 
 class _PingRequestFactory(Protocol):
@@ -119,7 +127,7 @@ class _EngineStubProtocol(Protocol):
 
 
 class _EngineServiceStubFactory(Protocol):
-    def __call__(self, channel: grpc.Channel) -> _EngineStubProtocol: ...
+    def __call__(self, channel: grpc_Channel) -> _EngineStubProtocol: ...
 
 
 class _Pb2GrpcProtocol(Protocol):
@@ -146,7 +154,7 @@ def _require_engine_pb2_grpc() -> _Pb2GrpcProtocol:
 
 class EngineGrpcClient:
     def __init__(self, *, target: str = "127.0.0.1:50051") -> None:
-        self._channel = grpc.insecure_channel(target)
+        self._channel = grpc_insecure_channel(target)
         pb2_grpc = _require_engine_pb2_grpc()
         self._stub = pb2_grpc.EngineServiceStub(self._channel)
 
@@ -190,8 +198,8 @@ class EngineGrpcClient:
         }
 
     def step_many(
-        self, actions: NDArray[np.float64]
-    ) -> tuple[list[ObservationDict], NDArray[np.float64], NDArray[np.bool_]]:
+        self, actions: NDArray[np_float64]
+    ) -> tuple[list[ObservationDict], NDArray[np_float64], NDArray[np_bool_]]:
         pb2 = _require_engine_pb2()
         encoded_actions: list[ProtoMessage] = []
         for row in actions:
@@ -200,8 +208,8 @@ class EngineGrpcClient:
                     side_code=int(row[0]),
                     units=float(row[1]),
                     order_type_code=int(row[2]),
-                    has_limit_price=not np.isnan(row[3]),
-                    limit_price=0.0 if np.isnan(row[3]) else float(row[3]),
+                    has_limit_price=not np_isnan(row[3]),
+                    limit_price=0.0 if np_isnan(row[3]) else float(row[3]),
                 )
             )
         response = self._stub.StepMany(pb2.StepManyRequest(actions=encoded_actions))
@@ -222,6 +230,6 @@ class EngineGrpcClient:
             )
         return (
             obs,
-            np.asarray(response.rewards, dtype=np.float64),
-            np.asarray(response.dones, dtype=np.bool_),
+            np_asarray(response.rewards, dtype=np_float64),
+            np_asarray(response.dones, dtype=np_bool_),
         )

@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 
-import numpy as np
+from numpy import asarray as np_asarray, float64 as np_float64, int8 as np_int8, logical_and as np_logical_and, sum as np_sum
 from numpy.typing import NDArray
 
 from .core import CoreState
@@ -14,36 +14,36 @@ class OrderSummary:
     buy_open_orders: int
     sell_open_orders: int
 
-    def to_vector(self) -> NDArray[np.float64]:
-        return np.asarray(
+    def to_vector(self) -> NDArray[np_float64]:
+        return np_asarray(
             [
                 float(self.open_orders),
                 float(self.buy_open_orders),
                 float(self.sell_open_orders),
             ],
-            dtype=np.float64,
+            dtype=np_float64,
         )
 
 
 def summarize_orders(state: CoreState) -> OrderSummary:
     buy_open_orders = int(
-        np.sum(
-            np.logical_and(
+        np_sum(
+            np_logical_and(
                 state.order_active == 1,
-                state.order_side == np.int8(1),
+                state.order_side == np_int8(1),
             )
         )
     )
     sell_open_orders = int(
-        np.sum(
-            np.logical_and(
+        np_sum(
+            np_logical_and(
                 state.order_active == 1,
-                state.order_side == np.int8(-1),
+                state.order_side == np_int8(-1),
             )
         )
     )
     return OrderSummary(
-        open_orders=int(np.sum(state.order_active)),
+        open_orders=int(np_sum(state.order_active)),
         buy_open_orders=buy_open_orders,
         sell_open_orders=sell_open_orders,
     )

@@ -5,7 +5,7 @@ from dataclasses import asdict, dataclass
 from pathlib import Path
 from typing import TypeAlias
 
-import pandas as pd
+from pandas import DataFrame as pd_DataFrame, concat as pd_concat, isna as pd_isna, read_parquet as pd_read_parquet
 
 from .types import Action
 
@@ -173,7 +173,7 @@ class ParquetRecorder(Recorder):
         self._flush()
         if not self._path.exists():
             return ()
-        frame = pd.read_parquet(self._path)
+        frame = pd_read_parquet(self._path)
         if frame.empty:
             return ()
         if episode_id is not None:
@@ -193,7 +193,7 @@ class ParquetRecorder(Recorder):
                     side=str(typed_data["side"]),
                     order_type=str(typed_data["order_type"]),
                     units=float(typed_data["units"]),
-                    limit_price=(None if pd.isna(limit_raw) else float(limit_raw)),
+                    limit_price=(None if pd_isna(limit_raw) else float(limit_raw)),
                     fills=int(typed_data["fills"]),
                     equity=float(typed_data["equity"]),
                     leverage=float(typed_data["leverage"]),
@@ -205,9 +205,9 @@ class ParquetRecorder(Recorder):
     def _flush(self) -> None:
         if not self._buffer:
             return
-        frame = pd.DataFrame([asdict(row) for row in self._buffer])
+        frame = pd_DataFrame([asdict(row) for row in self._buffer])
         if self._path.exists():
-            previous = pd.read_parquet(self._path)
-            frame = pd.concat([previous, frame], ignore_index=True)
+            previous = pd_read_parquet(self._path)
+            frame = pd_concat([previous, frame], ignore_index=True)
         frame.to_parquet(self._path, index=False)
         self._buffer.clear()

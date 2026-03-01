@@ -3,7 +3,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import Literal, TypeAlias
 
-import numpy as np
+from numpy import asarray as np_asarray, float64 as np_float64
 from numpy.typing import NDArray
 from pydantic import BaseModel, ConfigDict
 
@@ -69,7 +69,7 @@ class MarketWindowViewHandle:
     t: int
     current_price: float
 
-    def to_numpy(self) -> NDArray[np.float64]:
+    def to_numpy(self) -> NDArray[np_float64]:
         """Convert the view handle to a dense NumPy vector.
 
         Returns
@@ -77,9 +77,9 @@ class MarketWindowViewHandle:
         numpy.ndarray
             Array with shape ``(4,)`` ordered as ``[start, end, t, current_price]``.
         """
-        return np.asarray(
+        return np_asarray(
             [self.start, self.end, self.t, self.current_price],
-            dtype=np.float64,
+            dtype=np_float64,
         )
 
 
@@ -100,8 +100,8 @@ class Observation:
     """
 
     market: MarketWindowViewHandle
-    portfolio_vector: NDArray[np.float64]
-    order_summary_vector: NDArray[np.float64]
+    portfolio_vector: NDArray[np_float64]
+    order_summary_vector: NDArray[np_float64]
     done: bool
 
     @property
@@ -132,7 +132,7 @@ class Observation:
     def open_orders(self) -> int:
         return int(self.order_summary_vector[0])
 
-    def to_numpy_tensors(self) -> dict[str, NDArray[np.float64]]:
+    def to_numpy_tensors(self) -> dict[str, NDArray[np_float64]]:
         """Convert observation into tensor-ready NumPy values.
 
         Returns
@@ -145,7 +145,7 @@ class Observation:
             "market_window_handle": self.market.to_numpy(),
             "portfolio_vector": self.portfolio_vector.copy(),
             "order_summary_vector": self.order_summary_vector.copy(),
-            "done": np.asarray([1.0 if self.done else 0.0], dtype=np.float64),
+            "done": np_asarray([1.0 if self.done else 0.0], dtype=np_float64),
         }
 
     def to_serializable(self) -> SerializedObservation:

@@ -1,8 +1,8 @@
 from __future__ import annotations
 
-import hashlib
-import json
-import os
+from hashlib import sha256 as hashlib_sha256
+from json import dumps as json_dumps
+from os import getenv as os_getenv
 from dataclasses import asdict, dataclass, fields
 from pathlib import Path
 from typing import TypeAlias, get_type_hints
@@ -38,20 +38,20 @@ class GameConfig:
         return asdict(self)
 
     def stable_hash(self) -> str:
-        payload = json.dumps(self.to_dict(), sort_keys=True, separators=(",", ":"))
-        return hashlib.sha256(payload.encode("utf-8")).hexdigest()[:16]
+        payload = json_dumps(self.to_dict(), sort_keys=True, separators=(",", ":"))
+        return hashlib_sha256(payload.encode("utf-8")).hexdigest()[:16]
 
     @classmethod
     def from_yaml(cls, path: str | Path) -> GameConfig:
         try:
-            import yaml
+                        from yaml import safe_load as yaml_safe_load
         except ModuleNotFoundError as exc:
             raise RuntimeError(
                 "PyYAML is required for YAML config loading. Install pyyaml."
             ) from exc
 
         config_path = Path(path)
-        raw = yaml.safe_load(config_path.read_text(encoding="utf-8"))
+        raw = yaml_safe_load(config_path.read_text(encoding="utf-8"))
         if raw is None:
             raw = {}
         if not isinstance(raw, dict):
@@ -88,7 +88,7 @@ class GameConfig:
         hints = get_type_hints(cls)
         for item in fields(cls):
             env_key = f"{prefix}{item.name}".upper()
-            raw = os.getenv(env_key)
+            raw = os_getenv(env_key)
             if raw is None:
                 continue
             expected_type = hints.get(item.name, str)

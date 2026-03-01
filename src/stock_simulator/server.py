@@ -1,10 +1,10 @@
 from __future__ import annotations
 
-import os
+from os import getenv as os_getenv
 from typing import Literal
 
-import numpy as np
-import uvicorn
+from numpy import asarray as np_asarray, float64 as np_float64, nan as np_nan
+from uvicorn import run as uvicorn_run
 from fastapi import FastAPI, HTTPException, Response, status
 from numpy.typing import NDArray
 from prometheus_client import make_asgi_app
@@ -90,7 +90,7 @@ class RuntimeState:
     """Mutable process-local runtime state for the FastAPI service."""
 
     def __init__(self) -> None:
-        self.engine_enabled = _as_bool(os.getenv("ENGINE_ENABLED"), default=True)
+        self.engine_enabled = _as_bool(os_getenv("ENGINE_ENABLED"), default=True)
         self.engine_ready = False
         self.engine_error: str | None = None
         self.env: MarketEnv | None = None
@@ -105,11 +105,11 @@ def _as_bool(value: str | None, default: bool) -> bool:
 
 def _load_engine() -> MarketEnv:
     """Construct a simulator instance from environment configuration."""
-    market_data_csv = os.getenv("MARKET_DATA_CSV")
+    market_data_csv = os_getenv("MARKET_DATA_CSV")
     if not market_data_csv:
         raise ValueError("MARKET_DATA_CSV must be set when ENGINE_ENABLED=true")
     market_data = MarketData.from_csv(market_data_csv)
-    config_yaml = os.getenv("STOCK_SIM_CONFIG_YAML")
+    config_yaml = os_getenv("STOCK_SIM_CONFIG_YAML")
     config = GameConfig.load(yaml_path=config_yaml)
     return MarketEnv(data=market_data, cfg=config)
 
@@ -185,7 +185,7 @@ def create_app() -> FastAPI:
 
         rows: list[list[float]] = []
         for action in payload.actions:
-            limit_price = np.nan
+            limit_price = np_nan
             if action.has_limit_price:
                 if action.limit_price is None:
                     raise HTTPException(
@@ -201,7 +201,7 @@ def create_app() -> FastAPI:
                     float(limit_price),
                 ]
             )
-        actions_matrix: NDArray[np.float64] = np.asarray(rows, dtype=np.float64)
+        actions_matrix: NDArray[np_float64] = np_asarray(rows, dtype=np_float64)
         try:
             observations, rewards, dones = env.step_many(actions_matrix)
         except ValueError as exc:
@@ -237,9 +237,9 @@ app = create_app()
 
 def main() -> None:
     """Run the ASGI server entrypoint."""
-    host = os.getenv("HOST", "0.0.0.0")
-    port = int(os.getenv("PORT", "8000"))
-    uvicorn.run("stock_simulator.server:app", host=host, port=port, reload=False)
+    host = os_getenv("HOST", "0.0.0.0")
+    port = int(os_getenv("PORT", "8000"))
+    uvicorn_run("stock_simulator.server:app", host=host, port=port, reload=False)
 
 
 if __name__ == "__main__":

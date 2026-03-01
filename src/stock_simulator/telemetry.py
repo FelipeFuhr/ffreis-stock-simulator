@@ -1,7 +1,7 @@
 from __future__ import annotations
 
-import os
-import time
+from os import getenv as os_getenv
+from time import perf_counter as time_perf_counter
 from collections.abc import Iterator
 from contextlib import contextmanager
 from typing import Protocol, cast
@@ -66,8 +66,8 @@ class Telemetry:
     """Telemetry facade for tracing and metrics emission."""
 
     def __init__(self) -> None:
-        service_name = os.getenv("OTEL_SERVICE_NAME", "ffreis-stock-simulator")
-        service_version = os.getenv("OTEL_SERVICE_VERSION", "0.1.0")
+        service_name = os_getenv("OTEL_SERVICE_NAME", "ffreis-stock-simulator")
+        service_version = os_getenv("OTEL_SERVICE_VERSION", "0.1.0")
         resource = Resource.create(
             {
                 "service.name": service_name,
@@ -75,9 +75,9 @@ class Telemetry:
             }
         )
 
-        otlp_endpoint = os.getenv("OTEL_EXPORTER_OTLP_ENDPOINT", "").strip()
-        otlp_enabled = _as_bool(os.getenv("TELEMETRY_OTLP_ENABLED"), default=bool(otlp_endpoint))
-        prometheus_enabled = _as_bool(os.getenv("TELEMETRY_PROMETHEUS_ENABLED"), default=True)
+        otlp_endpoint = os_getenv("OTEL_EXPORTER_OTLP_ENDPOINT", "").strip()
+        otlp_enabled = _as_bool(os_getenv("TELEMETRY_OTLP_ENABLED"), default=bool(otlp_endpoint))
+        prometheus_enabled = _as_bool(os_getenv("TELEMETRY_PROMETHEUS_ENABLED"), default=True)
 
         tracer_provider = TracerProvider(resource=resource)
         metric_readers: list[PeriodicExportingMetricReader] = []
@@ -133,7 +133,7 @@ class Telemetry:
         self, *, use_numba: bool, action_side: str, action_type: str
     ) -> Iterator[None]:
         """Create parent span around one environment step."""
-        start = time.perf_counter()
+        start = time_perf_counter()
         with self._tracer.start_as_current_span("env.step") as span:
             span.set_attribute("sim.use_numba", use_numba)
             span.set_attribute("sim.action_side", action_side)
@@ -142,7 +142,7 @@ class Telemetry:
             try:
                 yield
             finally:
-                elapsed = time.perf_counter() - start
+                elapsed = time_perf_counter() - start
                 self._step_latency_hist.record(
                     elapsed,
                     {"use_numba": str(use_numba), "config_hash": self._config_hash},
