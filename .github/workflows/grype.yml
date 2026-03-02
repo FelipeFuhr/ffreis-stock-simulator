@@ -39,6 +39,8 @@ jobs:
   grype:
     runs-on: ubuntu-latest
     timeout-minutes: 45
+    env:
+      IMAGE_NAME: localhost/ffreis/stock-simulator
 
     steps:
       - uses: actions/checkout@v6
@@ -52,7 +54,7 @@ jobs:
       - name: Build images (local)
         run: |
           set -euo pipefail
-          CONTAINER_COMMAND=podman make build
+          podman build -f container/Dockerfile -t "${IMAGE_NAME}" .
 
       - name: Install Grype
         run: |
@@ -75,14 +77,13 @@ jobs:
           set -euo pipefail
           mkdir -p grype-results
 
-          images=(ffreis/base ffreis/base-builder ffreis/builder ffreis/base-runner ffreis/runner)
+          images=("${IMAGE_NAME}")
 
           for image in "${images[@]}"; do
             name="${image##*/}"
             archive="grype-results/${name}.oci.tar"
             out="grype-results/${name}.sarif"
 
-            podman image exists "${image}"
             podman save --format oci-archive --output "${archive}" "${image}"
 
             ./bin/grype "oci-archive:${archive}" -o sarif --file "$out" --fail-on high

@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from collections.abc import Callable
+from importlib import import_module as importlib_import_module
 from os import getenv as os_getenv
 from typing import Protocol, cast
 
@@ -25,7 +26,8 @@ from stock_simulator.types import Action, EnvStateModel, MarketWindowViewHandleM
 
 try:
     from stock_simulator.grpc.server import EngineGrpcService
-    from stocksim_grpc import engine_pb2 as _engine_pb2
+
+    _engine_pb2 = importlib_import_module("stocksim_grpc.engine_pb2")
 except ImportError as exc:
     pytest_skip(f"grpc parity dependencies unavailable: {exc}", allow_module_level=True)
 

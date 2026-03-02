@@ -60,5 +60,13 @@ jobs:
       - name: Audit dependencies (pip-audit)
         run: |
           set -euo pipefail
-          uv export --frozen --all-extras --format requirements-txt -o /tmp/requirements.txt
+          # pip-audit cannot resolve editable local project entries with hash-locked exports.
+          # Audit third-party dependencies only.
+          uv export \
+            --frozen \
+            --all-extras \
+            --format requirements-txt \
+            --no-emit-project \
+            --no-hashes \
+            -o /tmp/requirements.txt
           uv run --with pip-audit python -m pip_audit -r /tmp/requirements.txt

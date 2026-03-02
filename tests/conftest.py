@@ -3,6 +3,7 @@ from __future__ import annotations
 from collections.abc import Callable, Generator, Sequence
 from contextlib import closing as contextlib_closing
 from dataclasses import dataclass
+from importlib import import_module as importlib_import_module
 from os import environ as os_environ
 from pathlib import Path
 from socket import AF_INET as socket_AF_INET
@@ -34,8 +35,8 @@ from stock_simulator.types import Action
 
 _engine_pb2: ModuleType | None
 try:
-    from stocksim_grpc import engine_pb2 as _engine_pb2
-except ImportError:  # pragma: no cover
+    _engine_pb2 = importlib_import_module("stocksim_grpc.engine_pb2")
+except ModuleNotFoundError:  # pragma: no cover
     _engine_pb2 = None
 
 try:

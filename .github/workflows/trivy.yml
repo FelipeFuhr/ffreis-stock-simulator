@@ -40,6 +40,8 @@ jobs:
   image-scan:
     runs-on: ubuntu-latest
     timeout-minutes: 45
+    env:
+      IMAGE_NAME: localhost/ffreis/stock-simulator
     steps:
       - uses: actions/checkout@v6
       - name: Install Podman
@@ -50,7 +52,7 @@ jobs:
       - name: Build images
         run: |
           set -euo pipefail
-          CONTAINER_COMMAND=podman make build
+          podman build -f container/Dockerfile -t "${IMAGE_NAME}" .
       - name: Install Trivy
         run: |
           set -euo pipefail
@@ -68,7 +70,7 @@ jobs:
         run: |
           set -euo pipefail
           mkdir -p trivy-results
-          images=(ffreis/base ffreis/base-builder ffreis/builder ffreis/base-runner ffreis/runner)
+          images=("${IMAGE_NAME}")
 
           # Warm DB once.
           trivy image --download-db-only --no-progress
@@ -76,7 +78,6 @@ jobs:
           for image in "${images[@]}"; do
             name="${image##*/}"
             archive="trivy-results/${name}.docker.tar"
-            podman image exists "${image}"
             podman save --format docker-archive --output "${archive}" "${image}"
 
             trivy image \

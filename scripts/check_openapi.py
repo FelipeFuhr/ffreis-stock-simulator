@@ -4,11 +4,11 @@
 from __future__ import annotations
 
 from json import dumps as json_dumps
-from sys import path as sys_path
 from pathlib import Path
+from sys import path as sys_path
 
-from yaml import safe_load as yaml_safe_load
 from openapi_spec_validator import validate_spec
+from yaml import safe_load as yaml_safe_load
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
 SRC_DIR = REPO_ROOT / "src"

@@ -16,9 +16,7 @@ from stocksim_grpc import engine_pb2
 def _validate_http_base(api_base: str) -> tuple[str, str]:
     parsed = urlsplit(api_base)
     if parsed.scheme not in {"http", "https"}:
-        raise ValueError(
-            f"SIM_API_BASE must use http or https scheme; got {parsed.scheme or '<empty>'}"
-        )
+        raise ValueError(f"SIM_API_BASE must use http or https scheme; got {parsed.scheme or '<empty>'}")
     if not parsed.netloc:
         raise ValueError("SIM_API_BASE must include network location (host[:port])")
     return parsed.scheme, parsed.netloc
@@ -44,9 +42,7 @@ def _http_request(
     return status, payload
 
 
-def _wait_http_ok(
-    scheme: str, netloc: str, path: str, timeout_seconds: float = 30.0
-) -> bytes:
+def _wait_http_ok(scheme: str, netloc: str, path: str, timeout_seconds: float = 30.0) -> bytes:
     deadline = time_time() + timeout_seconds
     last_error: Exception | None = None
     while time_time() < deadline:
@@ -85,9 +81,7 @@ def _assert_http_endpoints(api_base: str) -> None:
         reset_payload = json_loads(reset_body.decode("utf-8"))
         assert reset_payload["state"]["t"] == 0
 
-        status, observe_body = _http_request(
-            scheme, netloc, "/v1/observe", timeout_seconds=5.0
-        )
+        status, observe_body = _http_request(scheme, netloc, "/v1/observe", timeout_seconds=5.0)
         assert status == 200
         observe_payload = json_loads(observe_body.decode("utf-8"))
         assert observe_payload["observation"]["market_window_handle"]["t"] >= 0

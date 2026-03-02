@@ -107,7 +107,7 @@ def step_core(
     )
 
 
-@njit(cache=True)
+@njit(cache=True)  # pragma: no cover
 def step_core_jit(
     t: int,
     done: bool,
