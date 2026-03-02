@@ -213,37 +213,37 @@ class EngineGrpcService:
         self._env = env
 
     # gRPC-generated server dispatch expects PascalCase RPC method names.
-    def Ping(self, request: ProtoMessage, context: grpc_ServicerContext) -> ProtoMessage:  # noqa: N802
+    def Ping(self, request: ProtoMessage, context: grpc_ServicerContext | None) -> ProtoMessage:  # noqa: N802
         return self.ping(request, context)
 
-    def Reset(self, request: _RequestWithSeed, context: grpc_ServicerContext) -> ProtoMessage:  # noqa: N802
+    def Reset(self, request: _RequestWithSeed, context: grpc_ServicerContext | None) -> ProtoMessage:  # noqa: N802
         return self.reset(request, context)
 
-    def Observe(self, request: ProtoMessage, context: grpc_ServicerContext) -> ProtoMessage:  # noqa: N802
+    def Observe(self, request: ProtoMessage, context: grpc_ServicerContext | None) -> ProtoMessage:  # noqa: N802
         return self.observe(request, context)
 
-    def StepMany(self, request: _RequestWithActions, context: grpc_ServicerContext) -> ProtoMessage:  # noqa: N802
+    def StepMany(self, request: _RequestWithActions, context: grpc_ServicerContext | None) -> ProtoMessage:  # noqa: N802
         return self.step_many(request, context)
 
-    def ping(self, request: ProtoMessage, context: grpc_ServicerContext) -> ProtoMessage:
+    def ping(self, request: ProtoMessage, context: grpc_ServicerContext | None) -> ProtoMessage:
         _ = (request, context)
         pb2 = _require_engine_pb2()
         return pb2.PingResponse(status="pong")
 
-    def reset(self, request: _RequestWithSeed, context: grpc_ServicerContext) -> ProtoMessage:
+    def reset(self, request: _RequestWithSeed, context: grpc_ServicerContext | None) -> ProtoMessage:
         _ = context
         pb2 = _require_engine_pb2()
         seed: int | None = int(request.seed) if request.has_seed else None
         state = self._env.reset(seed=seed)
         return pb2.ResetResponse(state=_state_to_proto(state))
 
-    def observe(self, request: ProtoMessage, context: grpc_ServicerContext) -> ProtoMessage:
+    def observe(self, request: ProtoMessage, context: grpc_ServicerContext | None) -> ProtoMessage:
         _ = (request, context)
         pb2 = _require_engine_pb2()
         observation = self._env.observe()
         return pb2.ObserveResponse(observation=_observation_to_proto(observation))
 
-    def step_many(self, request: _RequestWithActions, context: grpc_ServicerContext) -> ProtoMessage:
+    def step_many(self, request: _RequestWithActions, context: grpc_ServicerContext | None) -> ProtoMessage:
         pb2 = _require_engine_pb2()
         if len(request.actions) == 0:
             return pb2.StepManyResponse()
@@ -263,6 +263,8 @@ class EngineGrpcService:
         try:
             observations, rewards, dones = self._env.step_many(actions_matrix)
         except ValueError as exc:
+            if context is None:
+                raise
             context.abort(grpc_StatusCode.INVALID_ARGUMENT, str(exc))
             raise AssertionError("context.abort should raise") from exc
 
