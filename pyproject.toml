@@ -65,19 +65,38 @@ target-version = "py313"
 extend-exclude = ["src/stocksim_grpc"]
 
 [tool.ruff.lint]
-select = ["E", "F", "I", "UP", "B"]
+select = ["E", "F", "I", "UP", "B", "D", "ANN"]
+
+[tool.ruff.lint.pydocstyle]
+convention = "numpy"
+
+[tool.ruff.lint.per-file-ignores]
+"tests/**/*.py" = ["D", "ANN"]
+"benchmarks/**/*.py" = ["D", "ANN"]
+"examples/**/*.py" = ["D", "ANN"]
+"src/stocksim_grpc/*.py" = ["D", "ANN"]
+"src/stock_simulator/__init__.py" = ["D", "ANN"]
+"src/stock_simulator/core.py" = ["D", "ANN"]
+"src/stock_simulator/data.py" = ["D", "ANN"]
+"src/stock_simulator/env.py" = ["D", "ANN"]
+"src/stock_simulator/grpc/client.py" = ["D", "ANN"]
+"src/stock_simulator/grpc/server.py" = ["D", "ANN"]
+"src/stock_simulator/portal.py" = ["D", "ANN"]
+"src/stock_simulator/portfolio.py" = ["D", "ANN"]
+"src/stock_simulator/recorder.py" = ["D", "ANN"]
+"src/stock_simulator/server.py" = ["D", "ANN"]
+"src/stock_simulator/telemetry.py" = ["D", "ANN"]
+"src/stock_simulator/types.py" = ["D", "ANN"]
 
 [tool.mypy]
 python_version = "3.13"
 files = ["src/stock_simulator"]
 mypy_path = ["src"]
+strict = true
 warn_unused_configs = true
 warn_redundant_casts = true
 warn_unused_ignores = true
-disallow_untyped_defs = false
-check_untyped_defs = true
-no_implicit_optional = true
-disable_error_code = ["import-untyped"]
+disable_error_code = ["import-untyped", "untyped-decorator", "no-any-return"]
 exclude = "^src/stocksim_grpc/.*"
 
 [[tool.mypy.overrides]]

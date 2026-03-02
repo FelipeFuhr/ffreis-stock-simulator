@@ -1,3 +1,5 @@
+"""Configuration model and loaders for the simulator runtime."""
+
 from __future__ import annotations
 
 from dataclasses import asdict, dataclass, fields
@@ -12,6 +14,8 @@ type ConfigScalar = bool | int | float | str
 
 @dataclass
 class GameConfig:
+    """Runtime configuration for environment dynamics and execution behavior."""
+
     use_numba: bool = False
     observation_window: int = 64
     max_open_orders: int = 64
@@ -35,14 +39,17 @@ class GameConfig:
     seed: int = 1234
 
     def to_dict(self) -> dict[str, ConfigScalar]:
+        """Convert config values to a plain dictionary."""
         return asdict(self)
 
     def stable_hash(self) -> str:
+        """Return a stable short hash useful for telemetry tagging."""
         payload = json_dumps(self.to_dict(), sort_keys=True, separators=(",", ":"))
         return hashlib_sha256(payload.encode("utf-8")).hexdigest()[:16]
 
     @classmethod
     def from_yaml(cls, path: str | Path) -> GameConfig:
+        """Load configuration from a YAML file path."""
         try:
             from yaml import safe_load as yaml_safe_load
         except ModuleNotFoundError as exc:
@@ -58,6 +65,7 @@ class GameConfig:
 
     @classmethod
     def from_mapping(cls, raw: dict[str, ConfigScalar]) -> GameConfig:
+        """Build configuration from a validated key/value mapping."""
         allowed = {item.name for item in fields(cls)}
         unknown = sorted(set(raw) - allowed)
         if unknown:
@@ -82,6 +90,7 @@ class GameConfig:
 
     @classmethod
     def from_env(cls, prefix: str = "STOCK_SIM_") -> dict[str, ConfigScalar]:
+        """Read environment overrides using the provided key prefix."""
         values: dict[str, ConfigScalar] = {}
         hints = get_type_hints(cls)
         for item in fields(cls):
@@ -100,6 +109,7 @@ class GameConfig:
         yaml_path: str | Path | None = None,
         env_prefix: str = "STOCK_SIM_",
     ) -> GameConfig:
+        """Load config defaults, then YAML, then environment overrides."""
         config = cls()
         if yaml_path is not None:
             config = cls.from_yaml(yaml_path)
@@ -112,6 +122,7 @@ class GameConfig:
 
 
 def _coerce_env_value(raw: str, expected_type: type[bool] | type[int] | type[float] | type[str]) -> ConfigScalar:
+    """Parse one environment variable value to a supported scalar type."""
     if expected_type not in {bool, int, float, str}:
         expected_type = str
     value = raw.strip()

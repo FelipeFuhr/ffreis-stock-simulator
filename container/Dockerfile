@@ -20,6 +20,6 @@ COPY examples ./examples
 
 RUN uv venv "${VIRTUAL_ENV}" --python 3.13 \
     && ./scripts/generate_grpc_stubs.sh \
-    && uv sync --active --frozen --extra grpc
+    && uv sync --active --frozen --extra api --extra grpc
 
 CMD ["python", "-m", "stock_simulator.server"]

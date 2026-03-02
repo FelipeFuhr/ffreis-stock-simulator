@@ -77,7 +77,16 @@ jobs:
         run: |
           set -euo pipefail
           mkdir -p snyk-results
-          snyk test --all-projects --detection-depth=4 --sarif-file-output=snyk-results/oss.sarif || true
+          uv export \
+            --frozen \
+            --all-extras \
+            --format requirements-txt \
+            --no-hashes \
+            -o /tmp/requirements-snyk.txt
+          snyk test \
+            --file=/tmp/requirements-snyk.txt \
+            --package-manager=pip \
+            --sarif-file-output=snyk-results/oss.sarif || true
           test -s snyk-results/oss.sarif
 
       - name: Snyk Code scan

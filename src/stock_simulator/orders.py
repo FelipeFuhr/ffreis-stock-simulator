@@ -1,3 +1,5 @@
+"""Order book summary helpers for observation features."""
+
 from __future__ import annotations
 
 from dataclasses import dataclass
@@ -14,11 +16,14 @@ from .core import CoreState
 
 @dataclass(frozen=True)
 class OrderSummary:
+    """Counts of open orders split by side."""
+
     open_orders: int
     buy_open_orders: int
     sell_open_orders: int
 
     def to_vector(self) -> NDArray[np_float64]:
+        """Encode the order summary as a dense numeric feature vector."""
         return np_asarray(
             [
                 float(self.open_orders),
@@ -30,6 +35,7 @@ class OrderSummary:
 
 
 def summarize_orders(state: CoreState) -> OrderSummary:
+    """Compute order summary counts from the current core state."""
     buy_open_orders = int(
         np_sum(
             np_logical_and(
