@@ -2,10 +2,12 @@ from __future__ import annotations
 
 from pathlib import Path
 
+from pytest import MonkeyPatch
+
 from stock_simulator.config import GameConfig
 
 
-def test_config_load_from_yaml_and_env_override(monkeypatch, tmp_path: Path) -> None:
+def test_config_load_from_yaml_and_env_override(monkeypatch: MonkeyPatch, tmp_path: Path) -> None:
     yaml_path = tmp_path / "config.yaml"
     yaml_path.write_text(
         "\n".join(

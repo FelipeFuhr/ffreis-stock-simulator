@@ -27,7 +27,7 @@ def test_parquet_recorder_flush_and_replay_paths(tmp_path: Path, monkeypatch: Mo
     def _fake_read_parquet(path: Path) -> pd_DataFrame:
         return store[path].copy()
 
-    monkeypatch.setattr(recorder_mod.pd_DataFrame, "to_parquet", _fake_to_parquet)
+    monkeypatch.setattr(pd_DataFrame, "to_parquet", _fake_to_parquet)
     monkeypatch.setattr(recorder_mod, "pd_read_parquet", _fake_read_parquet)
 
     path = tmp_path / "replay.parquet"

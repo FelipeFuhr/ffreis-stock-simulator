@@ -22,7 +22,7 @@ class OrderSummary:
     buy_open_orders: int
     sell_open_orders: int
 
-    def to_vector(self) -> NDArray[np_float64]:
+    def to_vector(self: OrderSummary) -> NDArray[np_float64]:
         """Encode the order summary as a dense numeric feature vector."""
         return np_asarray(
             [

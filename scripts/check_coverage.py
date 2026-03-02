@@ -1,3 +1,5 @@
+"""Check Cobertura XML coverage against a configurable minimum threshold."""
+
 from os import environ as os_environ
 from sys import stderr as sys_stderr
 

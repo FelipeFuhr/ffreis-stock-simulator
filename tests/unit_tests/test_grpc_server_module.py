@@ -10,6 +10,7 @@ from numpy import float64 as np_float64
 from pytest import MonkeyPatch
 
 from stock_simulator.config import GameConfig
+from stock_simulator.data import MarketData
 from stock_simulator.env import MarketEnv
 from stock_simulator.grpc import server as grpc_server_mod
 from stock_simulator.types import EnvState, MarketWindowViewHandle, Observation
@@ -189,7 +190,7 @@ def test_build_synthetic_market_data_and_loader(monkeypatch: MonkeyPatch, tmp_pa
     marker = object()
     market_csv_path = tmp_path / "market.csv"
     monkeypatch.setenv("MARKET_DATA_CSV", str(market_csv_path))
-    monkeypatch.setattr(grpc_server_mod.MarketData, "from_csv", lambda _path: marker)
+    monkeypatch.setattr(MarketData, "from_csv", lambda _path: marker)
     loaded = grpc_server_mod._load_market_data()
     assert loaded is marker
 

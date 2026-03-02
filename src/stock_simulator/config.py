@@ -38,17 +38,17 @@ class GameConfig:
 
     seed: int = 1234
 
-    def to_dict(self) -> dict[str, ConfigScalar]:
+    def to_dict(self: GameConfig) -> dict[str, ConfigScalar]:
         """Convert config values to a plain dictionary."""
         return asdict(self)
 
-    def stable_hash(self) -> str:
+    def stable_hash(self: GameConfig) -> str:
         """Return a stable short hash useful for telemetry tagging."""
         payload = json_dumps(self.to_dict(), sort_keys=True, separators=(",", ":"))
         return hashlib_sha256(payload.encode("utf-8")).hexdigest()[:16]
 
     @classmethod
-    def from_yaml(cls, path: str | Path) -> GameConfig:
+    def from_yaml(cls: type[GameConfig], path: str | Path) -> GameConfig:
         """Load configuration from a YAML file path."""
         try:
             from yaml import safe_load as yaml_safe_load
@@ -64,7 +64,7 @@ class GameConfig:
         return cls.from_mapping(raw)
 
     @classmethod
-    def from_mapping(cls, raw: dict[str, ConfigScalar]) -> GameConfig:
+    def from_mapping(cls: type[GameConfig], raw: dict[str, ConfigScalar]) -> GameConfig:
         """Build configuration from a validated key/value mapping."""
         allowed = {item.name for item in fields(cls)}
         unknown = sorted(set(raw) - allowed)
@@ -89,7 +89,7 @@ class GameConfig:
         )
 
     @classmethod
-    def from_env(cls, prefix: str = "STOCK_SIM_") -> dict[str, ConfigScalar]:
+    def from_env(cls: type[GameConfig], prefix: str = "STOCK_SIM_") -> dict[str, ConfigScalar]:
         """Read environment overrides using the provided key prefix."""
         values: dict[str, ConfigScalar] = {}
         hints = get_type_hints(cls)
@@ -104,7 +104,7 @@ class GameConfig:
 
     @classmethod
     def load(
-        cls,
+        cls: type[GameConfig],
         *,
         yaml_path: str | Path | None = None,
         env_prefix: str = "STOCK_SIM_",

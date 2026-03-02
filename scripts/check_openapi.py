@@ -63,6 +63,7 @@ def _assert_runtime_matches_file(spec: dict[str, object]) -> None:
 
 
 def main() -> None:
+    """Validate static OpenAPI, uniqueness, and parity with runtime generation."""
     spec_path = REPO_ROOT / "docs" / "openapi.yaml"
     spec = _load_spec(spec_path)
     validate_spec(spec)

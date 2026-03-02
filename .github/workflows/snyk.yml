@@ -77,10 +77,13 @@ jobs:
         run: |
           set -euo pipefail
           mkdir -p snyk-results
+          # Snyk fails to parse editable local project entries (-e .).
+          # Scan resolved third-party dependencies only.
           uv export \
             --frozen \
             --all-extras \
             --format requirements-txt \
+            --no-emit-project \
             --no-hashes \
             -o /tmp/requirements-snyk.txt
           snyk test \
