@@ -171,12 +171,12 @@ def _load_engine() -> MarketEnv:
 def create_app() -> FastAPI:
     """Create the HTTP service app with health/readiness and metrics endpoints."""
     fastapi_mod, make_asgi_app, _ = _require_api_dependencies()
-    JSONResponse = importlib_import_module("fastapi.responses").JSONResponse
-    FastAPI = fastapi_mod.FastAPI
-    HTTPException = fastapi_mod.HTTPException
+    json_response_cls = importlib_import_module("fastapi.responses").JSONResponse
+    fastapi_cls = fastapi_mod.FastAPI
+    http_exception_cls = fastapi_mod.HTTPException
     status = fastapi_mod.status
 
-    app = FastAPI(
+    app = fastapi_cls(
         title="Stock Simulator Service",
         version="0.1.0",
         description="Health/ready endpoints and Prometheus metrics endpoint.",
@@ -200,7 +200,7 @@ def create_app() -> FastAPI:
 
     def require_env() -> MarketEnv:
         if runtime.env is None:
-            raise HTTPException(
+            raise http_exception_cls(
                 status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
                 detail="engine is not available",
             )
@@ -218,7 +218,7 @@ def create_app() -> FastAPI:
                 engine_enabled=runtime.engine_enabled,
                 engine_ready=False,
             )
-            return JSONResponse(
+            return json_response_cls(
                 status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
                 content=payload.model_dump(),
             )
@@ -251,7 +251,7 @@ def create_app() -> FastAPI:
             limit_price = np_nan
             if action.has_limit_price:
                 if action.limit_price is None:
-                    raise HTTPException(
+                    raise http_exception_cls(
                         status_code=status.HTTP_400_BAD_REQUEST,
                         detail="limit_price must be provided when has_limit_price=true",
                     )
@@ -268,7 +268,7 @@ def create_app() -> FastAPI:
         try:
             observations, rewards, dones = env.step_many(actions_matrix)
         except ValueError as exc:
-            raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc)) from exc
+            raise http_exception_cls(status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc)) from exc
 
         num_rows = int(rewards.shape[0])
         observation_rows: list[ObservationModel] = []

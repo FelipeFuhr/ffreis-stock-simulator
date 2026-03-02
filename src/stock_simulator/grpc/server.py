@@ -61,12 +61,13 @@ def _load_grpc_module() -> ModuleType | None:
 grpc_module = _load_grpc_module()
 grpc_server = cast(_GrpcServerFactory | None, getattr(grpc_module, "server", None)) if grpc_module is not None else None
 grpc_StatusCode = cast(_GrpcStatusCode | None, getattr(grpc_module, "StatusCode", None)) if grpc_module else None
+_GRPC_RUNTIME_UNAVAILABLE = "gRPC runtime is unavailable. Install with `uv sync --extra grpc`."
 
 
 def _require_grpc_module() -> _GrpcModule:
     """Return grpc runtime module or raise actionable error."""
     if grpc_module is None:
-        raise RuntimeError("gRPC runtime is unavailable. Install with `uv sync --extra grpc`.")
+        raise RuntimeError(_GRPC_RUNTIME_UNAVAILABLE)
     return cast(_GrpcModule, grpc_module)
 
 
@@ -295,7 +296,7 @@ class EngineGrpcService:
             if context is None:
                 raise
             if grpc_StatusCode is None:
-                raise RuntimeError("gRPC runtime is unavailable. Install with `uv sync --extra grpc`.") from exc
+                raise RuntimeError(_GRPC_RUNTIME_UNAVAILABLE) from exc
             context.abort(grpc_StatusCode.INVALID_ARGUMENT, str(exc))
             raise AssertionError("context.abort should raise") from exc
 
@@ -337,7 +338,7 @@ def create_server(
 
     _require_grpc_module()
     if grpc_server is None:
-        raise RuntimeError("gRPC runtime is unavailable. Install with `uv sync --extra grpc`.")
+        raise RuntimeError(_GRPC_RUNTIME_UNAVAILABLE)
     server = grpc_server(concurrentfutures_ThreadPoolExecutor(max_workers=max_workers))
     pb2_grpc = _require_engine_pb2_grpc()
     pb2_grpc.add_EngineServiceServicer_to_server(EngineGrpcService(env), server)

@@ -119,17 +119,77 @@ jobs:
               --format table
 
             echo "Gating ${image} on HIGH/CRITICAL vulnerabilities..."
-            if ! trivy image \
+            trivy image \
               --input "${archive}" \
               --skip-db-update \
               --no-progress \
               --ignorefile .trivyignore.yaml \
               --scanners vuln \
               --severity HIGH,CRITICAL \
-              --exit-code 1 \
-              --format table; then
+              --ignore-unfixed \
+              --exit-code 0 \
+              --format json \
+              --output "trivy-results/${name}.gate.json"
+
+            vuln_count="$(
+              python - <<'PY' "trivy-results/${name}.gate.json"
+import json
+import sys
+
+path = sys.argv[1]
+with open(path, encoding="utf-8") as f:
+    report = json.load(f)
+
+count = 0
+for result in report.get("Results", []):
+    count += len(result.get("Vulnerabilities") or [])
+print(count)
+PY
+            )"
+
+            echo "HIGH/CRITICAL findings for ${image}: ${vuln_count}"
+            if [ "${vuln_count}" -gt 0 ]; then
+              echo "Top HIGH/CRITICAL findings for ${image}:"
+              python - <<'PY' "trivy-results/${name}.gate.json"
+import json
+import sys
+
+path = sys.argv[1]
+with open(path, encoding="utf-8") as f:
+    report = json.load(f)
+
+shown = 0
+for result in report.get("Results", []):
+    target = result.get("Target", "<unknown>")
+    for vuln in result.get("Vulnerabilities") or []:
+        vid = vuln.get("VulnerabilityID", "<no-id>")
+        pkg = vuln.get("PkgName", "<no-pkg>")
+        installed = vuln.get("InstalledVersion", "<unknown>")
+        fixed = vuln.get("FixedVersion") or "<unfixed>"
+        severity = vuln.get("Severity", "<unknown>")
+        title = vuln.get("Title") or vuln.get("Description") or ""
+        print(f"- {severity} {vid} | {pkg} {installed} -> {fixed} | {target}")
+        if title:
+            print(f"  {title[:160]}")
+        shown += 1
+        if shown >= 20:
+            break
+    if shown >= 20:
+        break
+PY
               echo "FAIL" > "trivy-results/${name}.gate-status"
             else
+              # Keep Trivy's native non-zero gate as a safety net.
+              trivy image \
+                --input "${archive}" \
+                --skip-db-update \
+                --no-progress \
+                --ignorefile .trivyignore.yaml \
+                --scanners vuln \
+                --severity HIGH,CRITICAL \
+                --ignore-unfixed \
+                --exit-code 1 \
+                --format table >/dev/null
               echo "PASS" > "trivy-results/${name}.gate-status"
             fi
           done

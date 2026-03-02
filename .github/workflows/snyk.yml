@@ -86,9 +86,11 @@ jobs:
             --no-emit-project \
             --no-hashes \
             -o /tmp/requirements-snyk.txt
+          test -x .venv/bin/python
           snyk test \
             --file=/tmp/requirements-snyk.txt \
             --package-manager=pip \
+            --command=".venv/bin/python -m pip" \
             --sarif-file-output=snyk-results/oss.sarif || true
           test -s snyk-results/oss.sarif
 
