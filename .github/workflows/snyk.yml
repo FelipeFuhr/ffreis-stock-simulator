@@ -86,8 +86,17 @@ jobs:
             --no-emit-project \
             --no-hashes \
             -o /tmp/requirements-snyk.txt
-          pip_cmd="${PWD}/.venv/bin/pip"
-          test -x "${pip_cmd}"
+
+          # Create an isolated interpreter environment for Snyk's pip resolver.
+          # This avoids resolver mismatches with uv-managed environments.
+          python -m venv /tmp/snyk-venv
+          /tmp/snyk-venv/bin/python -m pip install --upgrade pip
+          /tmp/snyk-venv/bin/pip install -r /tmp/requirements-snyk.txt
+          pip_cmd="/tmp/snyk-venv/bin/pip"
+          if [ ! -x "${pip_cmd}" ]; then
+            echo "::error::Expected pip command not found at ${pip_cmd}"
+            exit 1
+          fi
 
           # Primary path: pinned requirements export.
           # Fallback path: pyproject manifest scan if Snyk fails to process the requirements file.
@@ -107,11 +116,17 @@ jobs:
             snyk test \
               --file=pyproject.toml \
               --package-manager=pip \
+              --command="${pip_cmd}" \
               --skip-unresolved \
               --sarif-file-output=snyk-results/oss.sarif || true
           fi
 
-          test -s snyk-results/oss.sarif
+          if [ ! -s snyk-results/oss.sarif ]; then
+            echo "::error::Snyk OSS scan did not generate SARIF output."
+            echo "Last 120 lines from snyk debug log:"
+            tail -n 120 snyk-results/oss-debug.log || true
+            exit 1
+          fi
 
       - name: Snyk Code scan
         env:

@@ -131,52 +131,26 @@ jobs:
               --format json \
               --output "trivy-results/${name}.gate.json"
 
+            trivy image \
+              --input "${archive}" \
+              --skip-db-update \
+              --no-progress \
+              --ignorefile .trivyignore.yaml \
+              --scanners vuln \
+              --severity HIGH,CRITICAL \
+              --ignore-unfixed \
+              --exit-code 0 \
+              --format table \
+              --output "trivy-results/${name}.gate.table"
+
             vuln_count="$(
-              python - <<'PY' "trivy-results/${name}.gate.json"
-import json
-import sys
-
-path = sys.argv[1]
-with open(path, encoding="utf-8") as f:
-    report = json.load(f)
-
-count = 0
-for result in report.get("Results", []):
-    count += len(result.get("Vulnerabilities") or [])
-print(count)
-PY
+              python -c 'import json,sys; r=json.load(open(sys.argv[1], encoding="utf-8")); print(sum(len(x.get("Vulnerabilities") or []) for x in r.get("Results", [])))' "trivy-results/${name}.gate.json"
             )"
 
             echo "HIGH/CRITICAL findings for ${image}: ${vuln_count}"
             if [ "${vuln_count}" -gt 0 ]; then
               echo "Top HIGH/CRITICAL findings for ${image}:"
-              python - <<'PY' "trivy-results/${name}.gate.json"
-import json
-import sys
-
-path = sys.argv[1]
-with open(path, encoding="utf-8") as f:
-    report = json.load(f)
-
-shown = 0
-for result in report.get("Results", []):
-    target = result.get("Target", "<unknown>")
-    for vuln in result.get("Vulnerabilities") or []:
-        vid = vuln.get("VulnerabilityID", "<no-id>")
-        pkg = vuln.get("PkgName", "<no-pkg>")
-        installed = vuln.get("InstalledVersion", "<unknown>")
-        fixed = vuln.get("FixedVersion") or "<unfixed>"
-        severity = vuln.get("Severity", "<unknown>")
-        title = vuln.get("Title") or vuln.get("Description") or ""
-        print(f"- {severity} {vid} | {pkg} {installed} -> {fixed} | {target}")
-        if title:
-            print(f"  {title[:160]}")
-        shown += 1
-        if shown >= 20:
-            break
-    if shown >= 20:
-        break
-PY
+              cat "trivy-results/${name}.gate.table"
               echo "FAIL" > "trivy-results/${name}.gate-status"
             else
               # Keep Trivy's native non-zero gate as a safety net.
