@@ -86,12 +86,31 @@ jobs:
             --no-emit-project \
             --no-hashes \
             -o /tmp/requirements-snyk.txt
-          test -x .venv/bin/python
+          pip_cmd="${PWD}/.venv/bin/pip"
+          test -x "${pip_cmd}"
+
+          # Primary path: pinned requirements export.
+          # Fallback path: pyproject manifest scan if Snyk fails to process the requirements file.
+          set +e
           snyk test \
             --file=/tmp/requirements-snyk.txt \
             --package-manager=pip \
-            --command=".venv/bin/python -m pip" \
-            --sarif-file-output=snyk-results/oss.sarif || true
+            --command="${pip_cmd}" \
+            --skip-unresolved \
+            --sarif-file-output=snyk-results/oss.sarif \
+            -d 2>&1 | tee snyk-results/oss-debug.log
+          primary_rc=$?
+          set -e
+
+          if [ ! -s snyk-results/oss.sarif ]; then
+            echo "Requirements-based Snyk scan did not emit SARIF (rc=${primary_rc}); falling back to pyproject.toml scan."
+            snyk test \
+              --file=pyproject.toml \
+              --package-manager=pip \
+              --skip-unresolved \
+              --sarif-file-output=snyk-results/oss.sarif || true
+          fi
+
           test -s snyk-results/oss.sarif
 
       - name: Snyk Code scan
@@ -107,6 +126,14 @@ jobs:
         with:
           sarif_file: snyk-results/oss.sarif
           category: snyk-oss
+
+      - name: Upload Snyk debug logs
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: snyk-debug-logs
+          path: snyk-results/*debug*.log
+          if-no-files-found: ignore
 
       - name: Upload Snyk Code SARIF
         uses: github/codeql-action/upload-sarif@v4
