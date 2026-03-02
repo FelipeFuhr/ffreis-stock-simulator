@@ -92,9 +92,9 @@ jobs:
           python -m venv /tmp/snyk-venv
           /tmp/snyk-venv/bin/python -m pip install --upgrade pip
           /tmp/snyk-venv/bin/pip install -r /tmp/requirements-snyk.txt
-          pip_cmd="/tmp/snyk-venv/bin/pip"
-          if [ ! -x "${pip_cmd}" ]; then
-            echo "::error::Expected pip command not found at ${pip_cmd}"
+          python_cmd="/tmp/snyk-venv/bin/python"
+          if [ ! -x "${python_cmd}" ]; then
+            echo "::error::Expected python command not found at ${python_cmd}"
             exit 1
           fi
 
@@ -104,7 +104,7 @@ jobs:
           snyk test \
             --file=/tmp/requirements-snyk.txt \
             --package-manager=pip \
-            --command="${pip_cmd}" \
+            --command="${python_cmd}" \
             --skip-unresolved \
             --sarif-file-output=snyk-results/oss.sarif \
             -d 2>&1 | tee snyk-results/oss-debug.log
@@ -116,7 +116,7 @@ jobs:
             snyk test \
               --file=pyproject.toml \
               --package-manager=pip \
-              --command="${pip_cmd}" \
+              --command="${python_cmd}" \
               --skip-unresolved \
               --sarif-file-output=snyk-results/oss.sarif || true
           fi
