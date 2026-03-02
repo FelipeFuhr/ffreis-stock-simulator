@@ -1,10 +1,10 @@
 from __future__ import annotations
 
-import os
-import time
 from collections.abc import Iterator
 from contextlib import contextmanager
-from typing import Any
+from os import getenv as os_getenv
+from time import perf_counter as time_perf_counter
+from typing import Protocol, cast
 
 from opentelemetry import metrics, trace
 from opentelemetry.exporter.otlp.proto.http.metric_exporter import OTLPMetricExporter
@@ -19,41 +19,43 @@ from prometheus_client import REGISTRY, Counter, Gauge, Histogram
 _TELEMETRY_SINGLETON: Telemetry | None = None
 
 
+class _CollectorLike(Protocol):
+    """Marker protocol for Prometheus collector instances."""
+
+
 def _as_bool(value: str | None, default: bool) -> bool:
     if value is None:
         return default
     return value.strip().lower() in {"1", "true", "t", "yes", "y", "on"}
 
 
-def _collector_by_name(name: str) -> Any | None:
+def _collector_by_name(name: str) -> _CollectorLike | None:
     mapping = getattr(REGISTRY, "_names_to_collectors", {})
     if name in mapping:
-        return mapping[name]
+        return cast(_CollectorLike, mapping[name])
     total_name = f"{name}_total"
     if total_name in mapping:
-        return mapping[total_name]
+        return cast(_CollectorLike, mapping[total_name])
     return None
 
 
 def _get_or_create_counter(name: str, documentation: str, labelnames: tuple[str, ...] = ()) -> Counter:
     existing = _collector_by_name(name)
-    if existing is not None:
+    if isinstance(existing, Counter):
         return existing
     return Counter(name=name, documentation=documentation, labelnames=labelnames)
 
 
 def _get_or_create_gauge(name: str, documentation: str, labelnames: tuple[str, ...] = ()) -> Gauge:
     existing = _collector_by_name(name)
-    if existing is not None:
+    if isinstance(existing, Gauge):
         return existing
     return Gauge(name=name, documentation=documentation, labelnames=labelnames)
 
 
-def _get_or_create_histogram(
-    name: str, documentation: str, labelnames: tuple[str, ...] = ()
-) -> Histogram:
+def _get_or_create_histogram(name: str, documentation: str, labelnames: tuple[str, ...] = ()) -> Histogram:
     existing = _collector_by_name(name)
-    if existing is not None:
+    if isinstance(existing, Histogram):
         return existing
     return Histogram(name=name, documentation=documentation, labelnames=labelnames)
 
@@ -62,8 +64,8 @@ class Telemetry:
     """Telemetry facade for tracing and metrics emission."""
 
     def __init__(self) -> None:
-        service_name = os.getenv("OTEL_SERVICE_NAME", "ffreis-stock-simulator")
-        service_version = os.getenv("OTEL_SERVICE_VERSION", "0.1.0")
+        service_name = os_getenv("OTEL_SERVICE_NAME", "ffreis-stock-simulator")
+        service_version = os_getenv("OTEL_SERVICE_VERSION", "0.1.0")
         resource = Resource.create(
             {
                 "service.name": service_name,
@@ -71,9 +73,9 @@ class Telemetry:
             }
         )
 
-        otlp_endpoint = os.getenv("OTEL_EXPORTER_OTLP_ENDPOINT", "").strip()
-        otlp_enabled = _as_bool(os.getenv("TELEMETRY_OTLP_ENABLED"), default=bool(otlp_endpoint))
-        prometheus_enabled = _as_bool(os.getenv("TELEMETRY_PROMETHEUS_ENABLED"), default=True)
+        otlp_endpoint = os_getenv("OTEL_EXPORTER_OTLP_ENDPOINT", "").strip()
+        otlp_enabled = _as_bool(os_getenv("TELEMETRY_OTLP_ENABLED"), default=bool(otlp_endpoint))
+        prometheus_enabled = _as_bool(os_getenv("TELEMETRY_PROMETHEUS_ENABLED"), default=True)
 
         tracer_provider = TracerProvider(resource=resource)
         metric_readers: list[PeriodicExportingMetricReader] = []
@@ -125,11 +127,9 @@ class Telemetry:
             self._prom_config_info.labels(config_hash=config_hash).set(1)
 
     @contextmanager
-    def step_span(
-        self, *, use_numba: bool, action_side: str, action_type: str
-    ) -> Iterator[None]:
+    def step_span(self, *, use_numba: bool, action_side: str, action_type: str) -> Iterator[None]:
         """Create parent span around one environment step."""
-        start = time.perf_counter()
+        start = time_perf_counter()
         with self._tracer.start_as_current_span("env.step") as span:
             span.set_attribute("sim.use_numba", use_numba)
             span.set_attribute("sim.action_side", action_side)
@@ -138,7 +138,7 @@ class Telemetry:
             try:
                 yield
             finally:
-                elapsed = time.perf_counter() - start
+                elapsed = time_perf_counter() - start
                 self._step_latency_hist.record(
                     elapsed,
                     {"use_numba": str(use_numba), "config_hash": self._config_hash},

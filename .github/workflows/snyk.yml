@@ -5,19 +5,31 @@ on:
   pull_request:
     branches: [ main ]
     paths:
-      - "app/**"
+      - "src/**"
+      - "tests/**"
+      - "benchmarks/**"
+      - "examples/**"
+      - "proto/**"
+      - "scripts/**"
+      - "pyproject.toml"
+      - "uv.lock"
       - "container/**"
-      - "Makefile"
       - ".github/workflows/snyk.yml"
   push:
     branches: [ main ]
     paths:
-      - "app/**"
+      - "src/**"
+      - "tests/**"
+      - "benchmarks/**"
+      - "examples/**"
+      - "proto/**"
+      - "scripts/**"
+      - "pyproject.toml"
+      - "uv.lock"
       - "container/**"
-      - "Makefile"
       - ".github/workflows/snyk.yml"
   schedule:
-    - cron: "0 10 * * 1" # Mondays 10:00 UTC
+    - cron: "0 10 * * 1"
 
 permissions:
   contents: read
@@ -31,13 +43,17 @@ jobs:
   snyk:
     if: ${{ github.event_name != 'pull_request' || github.event.pull_request.head.repo.fork == false }}
     runs-on: ubuntu-latest
+    timeout-minutes: 35
     steps:
       - uses: actions/checkout@v6
 
-      - name: Install Rust
-        uses: dtolnay/rust-toolchain@e97e2d8cc328f1b50210efc529dca0028893a2d9
+      - uses: actions/setup-python@v6
         with:
-          toolchain: stable
+          python-version: "3.13"
+
+      - uses: astral-sh/setup-uv@eac588ad8def6316056a12d4907a9d4d84ff7a3b
+        with:
+          enable-cache: true
 
       - name: Setup Node.js (for Snyk CLI)
         uses: actions/setup-node@v6
@@ -50,40 +66,67 @@ jobs:
           npm install -g snyk
           snyk --version
 
-      - name: Install CycloneDX generator for Cargo
+      - name: Install dependencies
         run: |
           set -euo pipefail
-          cargo install cargo-cyclonedx --locked
+          uv sync --frozen --extra dev --extra api --extra grpc
 
-      - name: Generate Cargo SBOM (CycloneDX JSON)
-        run: |
-          set -euo pipefail
-          mkdir -p snyk-results
-          (
-            cd app
-            cargo cyclonedx --format json
-          )
-          sbom_path="$(
-            find app -type f \( -name "bom.json" -o -name "*.cdx.json" -o -name "*cyclonedx*.json" \) \
-              | head -n 1
-          )"
-          if [ -z "${sbom_path}" ]; then
-            echo "No CycloneDX JSON SBOM file found under app/ after cargo cyclonedx." >&2
-            find app -maxdepth 3 -type f | sort >&2
-            exit 1
-          fi
-          cp "${sbom_path}" snyk-results/sbom.json
-          test -s snyk-results/sbom.json
-
-      - name: Snyk Open Source scan (SBOM)
+      - name: Snyk Open Source scan
         env:
           SNYK_TOKEN: ${{ secrets.SNYK_TOKEN }}
         run: |
           set -euo pipefail
-          snyk sbom test \
-            --file=snyk-results/sbom.json \
-            --sarif-file-output=snyk-results/oss.sarif || true
-          test -s snyk-results/oss.sarif
+          mkdir -p snyk-results
+          # Snyk fails to parse editable local project entries (-e .).
+          # Scan resolved third-party dependencies only.
+          uv export \
+            --frozen \
+            --all-extras \
+            --format requirements-txt \
+            --no-emit-project \
+            --no-hashes \
+            -o /tmp/requirements-snyk.txt
+
+          # Create an isolated interpreter environment for Snyk's pip resolver.
+          # This avoids resolver mismatches with uv-managed environments.
+          python -m venv /tmp/snyk-venv
+          /tmp/snyk-venv/bin/python -m pip install --upgrade pip
+          /tmp/snyk-venv/bin/pip install -r /tmp/requirements-snyk.txt
+          python_cmd="/tmp/snyk-venv/bin/python"
+          if [ ! -x "${python_cmd}" ]; then
+            echo "::error::Expected python command not found at ${python_cmd}"
+            exit 1
+          fi
+
+          # Primary path: pinned requirements export.
+          # Fallback path: pyproject manifest scan if Snyk fails to process the requirements file.
+          set +e
+          snyk test \
+            --file=/tmp/requirements-snyk.txt \
+            --package-manager=pip \
+            --command="${python_cmd}" \
+            --skip-unresolved \
+            --sarif-file-output=snyk-results/oss.sarif \
+            -d 2>&1 | tee snyk-results/oss-debug.log
+          primary_rc=$?
+          set -e
+
+          if [ ! -s snyk-results/oss.sarif ]; then
+            echo "Requirements-based Snyk scan did not emit SARIF (rc=${primary_rc}); falling back to pyproject.toml scan."
+            snyk test \
+              --file=pyproject.toml \
+              --package-manager=pip \
+              --command="${python_cmd}" \
+              --skip-unresolved \
+              --sarif-file-output=snyk-results/oss.sarif || true
+          fi
+
+          if [ ! -s snyk-results/oss.sarif ]; then
+            echo "::error::Snyk OSS scan did not generate SARIF output."
+            echo "Last 120 lines from snyk debug log:"
+            tail -n 120 snyk-results/oss-debug.log || true
+            exit 1
+          fi
 
       - name: Snyk Code scan
         env:
@@ -98,6 +141,14 @@ jobs:
         with:
           sarif_file: snyk-results/oss.sarif
           category: snyk-oss
+
+      - name: Upload Snyk debug logs
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: snyk-debug-logs
+          path: snyk-results/*debug*.log
+          if-no-files-found: ignore
 
       - name: Upload Snyk Code SARIF
         uses: github/codeql-action/upload-sarif@v4

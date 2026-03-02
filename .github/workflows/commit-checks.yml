@@ -1,21 +1,35 @@
-name: Commit Checks (Lefthook)
+name: Commit Checks (pre-commit)
 
 on:
   pull_request:
     branches: [ main ]
     paths:
-      - "app/**"
-      - "Makefile"
-      - "lefthook.yml"
+      - "src/**"
+      - "tests/**"
+      - "benchmarks/**"
+      - "examples/**"
       - "scripts/**"
+      - "proto/**"
+      - "docs/openapi.yaml"
+      - "pyproject.toml"
+      - "uv.lock"
+      - ".pre-commit-config.yaml"
+      - "Makefile"
       - ".github/workflows/commit-checks.yml"
   push:
     branches: [ main ]
     paths:
-      - "app/**"
-      - "Makefile"
-      - "lefthook.yml"
+      - "src/**"
+      - "tests/**"
+      - "benchmarks/**"
+      - "examples/**"
       - "scripts/**"
+      - "proto/**"
+      - "docs/openapi.yaml"
+      - "pyproject.toml"
+      - "uv.lock"
+      - ".pre-commit-config.yaml"
+      - "Makefile"
       - ".github/workflows/commit-checks.yml"
 
 permissions:
@@ -26,8 +40,9 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
-  lint-test:
+  commit-checks:
     runs-on: ubuntu-latest
+    timeout-minutes: 25
     defaults:
       run:
         shell: bash
@@ -35,11 +50,28 @@ jobs:
     steps:
       - uses: actions/checkout@v6
 
-      - name: Install Rust
-        uses: dtolnay/rust-toolchain@e97e2d8cc328f1b50210efc529dca0028893a2d9
+      - uses: actions/setup-python@v6
         with:
-          toolchain: stable
-      - name: Commit Checks (Lefthook) 
-        run: |
-          set -euo pipefail
-          make lefthook
+          python-version: "3.13"
+
+      - uses: astral-sh/setup-uv@eac588ad8def6316056a12d4907a9d4d84ff7a3b
+        with:
+          enable-cache: true
+
+      - name: Check lock present
+        run: test -s uv.lock || (echo "uv.lock missing - run uv lock"; exit 1)
+
+      - name: Install dependencies
+        run: uv sync --frozen --extra dev --extra api --extra grpc
+
+      - name: Cache pre-commit
+        uses: actions/cache@v5
+        with:
+          path: ~/.cache/pre-commit
+          key: precommit-${{ runner.os }}-py313-${{ hashFiles('.pre-commit-config.yaml') }}
+
+      - name: Run pre-commit hooks
+        run: uv run --frozen pre-commit run --all-files --show-diff-on-failure
+
+      - name: Unit tests
+        run: uv run --frozen python -m pytest -q tests/unit_tests

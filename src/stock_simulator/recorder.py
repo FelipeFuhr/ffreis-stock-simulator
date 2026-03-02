@@ -3,11 +3,16 @@ from __future__ import annotations
 from abc import ABC, abstractmethod
 from dataclasses import asdict, dataclass
 from pathlib import Path
-from typing import Any
 
-import pandas as pd
+from pandas import DataFrame as pd_DataFrame
+from pandas import concat as pd_concat
+from pandas import isna as pd_isna
+from pandas import read_parquet as pd_read_parquet
 
 from .types import Action
+
+type ReplayScalar = int | float | str | None
+type ReplayRow = dict[str, ReplayScalar]
 
 
 @dataclass(frozen=True)
@@ -170,7 +175,7 @@ class ParquetRecorder(Recorder):
         self._flush()
         if not self._path.exists():
             return ()
-        frame = pd.read_parquet(self._path)
+        frame = pd_read_parquet(self._path)
         if frame.empty:
             return ()
         if episode_id is not None:
@@ -180,20 +185,21 @@ class ParquetRecorder(Recorder):
         replay_rows: list[RecordedStep] = []
         for row in rows:
             data = row if isinstance(row, dict) else dict(row)
-            limit_raw: Any = data["limit_price"]
+            typed_data = {str(key): value for key, value in data.items()}
+            limit_raw = typed_data["limit_price"]
             replay_rows.append(
                 RecordedStep(
-                    episode_id=int(data["episode_id"]),
-                    step=int(data["step"]),
-                    seed=int(data["seed"]),
-                    side=str(data["side"]),
-                    order_type=str(data["order_type"]),
-                    units=float(data["units"]),
-                    limit_price=(None if pd.isna(limit_raw) else float(limit_raw)),
-                    fills=int(data["fills"]),
-                    equity=float(data["equity"]),
-                    leverage=float(data["leverage"]),
-                    price=float(data["price"]),
+                    episode_id=int(typed_data["episode_id"]),
+                    step=int(typed_data["step"]),
+                    seed=int(typed_data["seed"]),
+                    side=str(typed_data["side"]),
+                    order_type=str(typed_data["order_type"]),
+                    units=float(typed_data["units"]),
+                    limit_price=(None if pd_isna(limit_raw) else float(limit_raw)),
+                    fills=int(typed_data["fills"]),
+                    equity=float(typed_data["equity"]),
+                    leverage=float(typed_data["leverage"]),
+                    price=float(typed_data["price"]),
                 )
             )
         return tuple(replay_rows)
@@ -201,9 +207,9 @@ class ParquetRecorder(Recorder):
     def _flush(self) -> None:
         if not self._buffer:
             return
-        frame = pd.DataFrame([asdict(row) for row in self._buffer])
+        frame = pd_DataFrame([asdict(row) for row in self._buffer])
         if self._path.exists():
-            previous = pd.read_parquet(self._path)
-            frame = pd.concat([previous, frame], ignore_index=True)
+            previous = pd_read_parquet(self._path)
+            frame = pd_concat([previous, frame], ignore_index=True)
         frame.to_parquet(self._path, index=False)
         self._buffer.clear()

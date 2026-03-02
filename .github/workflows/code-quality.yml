@@ -1,54 +1,90 @@
-name: Build
+name: Code Quality (Sonar)
+
 on:
-  push:
-    branches:
-      - main
-    paths:
-      - "app/**"
-      - "sonar-project.properties"
-      - "Makefile"
-      - ".github/workflows/code-quality.yml"
+  workflow_dispatch:
   pull_request:
-    types: [opened, synchronize, reopened]
+    branches: [ main ]
     paths:
-      - "app/**"
+      - "src/**"
+      - "tests/**"
+      - "benchmarks/**"
+      - "examples/**"
+      - "proto/**"
+      - "scripts/**"
+      - "pyproject.toml"
+      - "uv.lock"
       - "sonar-project.properties"
-      - "Makefile"
+      - ".github/workflows/code-quality.yml"
+  push:
+    branches: [ main ]
+    paths:
+      - "src/**"
+      - "tests/**"
+      - "benchmarks/**"
+      - "examples/**"
+      - "proto/**"
+      - "scripts/**"
+      - "pyproject.toml"
+      - "uv.lock"
+      - "sonar-project.properties"
       - ".github/workflows/code-quality.yml"
 
 concurrency:
-  group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
+  group: ${{ github.workflow }}-${{ github.ref }}
   cancel-in-progress: true
+
 jobs:
   sonarqube:
-    name: SonarQube
     runs-on: ubuntu-latest
+    timeout-minutes: 35
+
     steps:
       - uses: actions/checkout@v6
         with:
-          fetch-depth: 0  # Shallow clones should be disabled for a better relevancy of analysis
+          fetch-depth: 0
 
-      - name: Install Rust
-        uses: dtolnay/rust-toolchain@e97e2d8cc328f1b50210efc529dca0028893a2d9
+      - uses: actions/setup-python@v6
         with:
-          toolchain: stable
-          components: llvm-tools-preview
+          python-version: "3.13"
 
-      - name: Install cargo-llvm-cov
+      - uses: astral-sh/setup-uv@eac588ad8def6316056a12d4907a9d4d84ff7a3b
+        with:
+          enable-cache: true
+
+      - name: Install dependencies (frozen)
         run: |
           set -euo pipefail
-          cargo install cargo-llvm-cov --locked
+          uv sync --frozen --extra dev --extra api --extra grpc
 
-      - name: Generate LCOV for Sonar
+      - name: Generate coverage for Sonar
         run: |
           set -euo pipefail
-          mkdir -p coverage
-          cargo llvm-cov --manifest-path app/Cargo.toml --all-features --workspace --tests --bins \
-            --lcov --output-path coverage/lcov.info
-          test -s coverage/lcov.info
+          ./scripts/generate_grpc_stubs.sh
+          uv run --frozen pytest \
+            tests/unit_tests \
+            --cov=src \
+            --cov-report=xml:coverage.xml \
+            --cov-report=term \
+            --cov-fail-under=0
+          test -s coverage.xml
+
+      - name: Resolve Sonar metadata
+        run: |
+          set -euo pipefail
+          echo "SONAR_PROJECT_KEY=${{ vars.SONAR_PROJECT_KEY || 'FelipeFuhr_ffreis-stock-simulator' }}" >> "$GITHUB_ENV"
+          echo "SONAR_ORGANIZATION=${{ vars.SONAR_ORGANIZATION || 'felipefuhr' }}" >> "$GITHUB_ENV"
 
       - name: SonarQube Scan
         uses: SonarSource/sonarqube-scan-action@a31c9398be7ace6bbfaf30c0bd5d415f843d45e9
+        with:
+          args: >
+            -Dsonar.projectKey=${{ env.SONAR_PROJECT_KEY }}
+            -Dsonar.organization=${{ env.SONAR_ORGANIZATION }}
+            -Dsonar.projectName=ffreis-stock-simulator
+            -Dsonar.sources=src
+            -Dsonar.tests=tests
+            -Dsonar.python.version=3.13
+            -Dsonar.python.coverage.reportPaths=coverage.xml
         env:
           SONAR_HOST_URL: https://sonarcloud.io
           SONAR_TOKEN: ${{ secrets.SONAR_TOKEN }}

@@ -4,67 +4,64 @@ on:
   pull_request:
     branches: [ main ]
     paths:
-      - "app/**"
+      - "src/**"
+      - "tests/**"
+      - "benchmarks/**"
+      - "examples/**"
+      - "proto/**"
+      - "scripts/**"
+      - "pyproject.toml"
+      - "uv.lock"
       - "Makefile"
-      - "rust-toolchain.toml"
       - ".github/workflows/coverage.yml"
   push:
     branches: [ main ]
     paths:
-      - "app/**"
+      - "src/**"
+      - "tests/**"
+      - "benchmarks/**"
+      - "examples/**"
+      - "proto/**"
+      - "scripts/**"
+      - "pyproject.toml"
+      - "uv.lock"
       - "Makefile"
-      - "rust-toolchain.toml"
       - ".github/workflows/coverage.yml"
 
 permissions:
   contents: read
 
 concurrency:
-  group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
+  group: ${{ github.workflow }}-${{ github.ref }}
   cancel-in-progress: true
 
 jobs:
   coverage:
     runs-on: ubuntu-latest
-    defaults:
-      run:
-        shell: bash
+    timeout-minutes: 35
 
     steps:
       - uses: actions/checkout@v6
 
-      - name: Install Rust
-        uses: dtolnay/rust-toolchain@e97e2d8cc328f1b50210efc529dca0028893a2d9
+      - uses: actions/setup-python@v6
         with:
-          toolchain: stable
-          components: llvm-tools-preview
+          python-version: "3.13"
 
-      - name: Rust cache
-        uses: Swatinem/rust-cache@779680da715d629ac1d338a641029a2f4372abb5
+      - uses: astral-sh/setup-uv@eac588ad8def6316056a12d4907a9d4d84ff7a3b
         with:
-          workspaces: |
-            app -> target
+          enable-cache: true
 
-      - name: Install cargo-llvm-cov
+      - name: Generate coverage
         run: |
           set -euo pipefail
-          cargo install cargo-llvm-cov --locked
-
-      - name: Install Python deps for coverage
-        run: |
-          set -euo pipefail
-          python -m pip install --upgrade pip
-          python -m pip install defusedxml
-
-      - name: Generate coverage (Makefile)
-        run: |
-          set -euo pipefail
-          make -C app coverage
-          test -s coverage/cobertura.xml
+          uv sync --frozen --extra dev --extra api --extra grpc
+          ./scripts/generate_grpc_stubs.sh
+          uv run --frozen pytest -q --cov=src --cov-report=term --cov-report=xml:coverage.xml
+          test -s coverage.xml
 
       - name: Upload coverage to Codecov
         uses: codecov/codecov-action@671740ac38dd9b0130fbe1cec585b89eea48d3de
         with:
-          files: ./coverage/cobertura.xml
-          fail_ci_if_error: true
+          files: ./coverage.xml
+          fail_ci_if_error: false
           verbose: true

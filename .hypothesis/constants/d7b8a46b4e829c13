@@ -1,4 +1,0 @@
-# file: /home/ffreis/Documents/ffreis-model/1/ffreis-stock-simulator/src/stock_simulator/env.py
-# hypothesis_version: 6.151.8
-
-[0.0, 'buy', 'hold', 'limit', 'market', 'market_window_handle', 'multi', 'none', 'order_summary_vector', 'orders.fill', 'orders.match', 'portfolio_vector', 'sell', 'sim.action_side', 'sim.action_type', 'sim.fill_bucket', 'sim.has_fill', 'sim.use_numba', 'single']

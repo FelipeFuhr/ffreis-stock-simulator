@@ -1,4 +1,0 @@
-# file: /home/ffreis/Documents/ffreis-model/1/ffreis-stock-simulator/src/stock_simulator/data.py
-# hypothesis_version: 6.151.8
-
-['MarketData', 'close', 'high', 'low', 'open', 'timestamp', 'volume']

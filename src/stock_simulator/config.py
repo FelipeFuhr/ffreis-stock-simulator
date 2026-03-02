@@ -1,15 +1,21 @@
+"""Configuration model and loaders for the simulator runtime."""
+
 from __future__ import annotations
 
-import hashlib
-import json
-import os
 from dataclasses import asdict, dataclass, fields
+from hashlib import sha256 as hashlib_sha256
+from json import dumps as json_dumps
+from os import getenv as os_getenv
 from pathlib import Path
-from typing import Any, get_type_hints
+from typing import get_type_hints
+
+type ConfigScalar = bool | int | float | str
 
 
 @dataclass
 class GameConfig:
+    """Runtime configuration for environment dynamics and execution behavior."""
+
     use_numba: bool = False
     observation_window: int = 64
     max_open_orders: int = 64
@@ -32,24 +38,25 @@ class GameConfig:
 
     seed: int = 1234
 
-    def to_dict(self) -> dict[str, Any]:
+    def to_dict(self: GameConfig) -> dict[str, ConfigScalar]:
+        """Convert config values to a plain dictionary."""
         return asdict(self)
 
-    def stable_hash(self) -> str:
-        payload = json.dumps(self.to_dict(), sort_keys=True, separators=(",", ":"))
-        return hashlib.sha256(payload.encode("utf-8")).hexdigest()[:16]
+    def stable_hash(self: GameConfig) -> str:
+        """Return a stable short hash useful for telemetry tagging."""
+        payload = json_dumps(self.to_dict(), sort_keys=True, separators=(",", ":"))
+        return hashlib_sha256(payload.encode("utf-8")).hexdigest()[:16]
 
     @classmethod
-    def from_yaml(cls, path: str | Path) -> GameConfig:
+    def from_yaml(cls: type[GameConfig], path: str | Path) -> GameConfig:
+        """Load configuration from a YAML file path."""
         try:
-            import yaml
+            from yaml import safe_load as yaml_safe_load
         except ModuleNotFoundError as exc:
-            raise RuntimeError(
-                "PyYAML is required for YAML config loading. Install pyyaml."
-            ) from exc
+            raise RuntimeError("PyYAML is required for YAML config loading. Install pyyaml.") from exc
 
         config_path = Path(path)
-        raw = yaml.safe_load(config_path.read_text(encoding="utf-8"))
+        raw = yaml_safe_load(config_path.read_text(encoding="utf-8"))
         if raw is None:
             raw = {}
         if not isinstance(raw, dict):
@@ -57,20 +64,38 @@ class GameConfig:
         return cls.from_mapping(raw)
 
     @classmethod
-    def from_mapping(cls, raw: dict[str, Any]) -> GameConfig:
+    def from_mapping(cls: type[GameConfig], raw: dict[str, ConfigScalar]) -> GameConfig:
+        """Build configuration from a validated key/value mapping."""
         allowed = {item.name for item in fields(cls)}
         unknown = sorted(set(raw) - allowed)
         if unknown:
             raise ValueError(f"Unknown config keys: {', '.join(unknown)}")
-        return cls(**raw)
+        return cls(
+            use_numba=bool(raw.get("use_numba", cls.use_numba)),
+            observation_window=int(raw.get("observation_window", cls.observation_window)),
+            max_open_orders=int(raw.get("max_open_orders", cls.max_open_orders)),
+            initial_cash=float(raw.get("initial_cash", cls.initial_cash)),
+            max_leverage=float(raw.get("max_leverage", cls.max_leverage)),
+            delta_exposure=float(raw.get("delta_exposure", cls.delta_exposure)),
+            fee_bps=float(raw.get("fee_bps", cls.fee_bps)),
+            slippage_bps=float(raw.get("slippage_bps", cls.slippage_bps)),
+            market_latency_bars=int(raw.get("market_latency_bars", cls.market_latency_bars)),
+            limit_ttl_bars=int(raw.get("limit_ttl_bars", cls.limit_ttl_bars)),
+            partial_fill_min=float(raw.get("partial_fill_min", cls.partial_fill_min)),
+            partial_fill_max=float(raw.get("partial_fill_max", cls.partial_fill_max)),
+            shock_prob=float(raw.get("shock_prob", cls.shock_prob)),
+            shock_size_bps=float(raw.get("shock_size_bps", cls.shock_size_bps)),
+            seed=int(raw.get("seed", cls.seed)),
+        )
 
     @classmethod
-    def from_env(cls, prefix: str = "STOCK_SIM_") -> dict[str, Any]:
-        values: dict[str, Any] = {}
+    def from_env(cls: type[GameConfig], prefix: str = "STOCK_SIM_") -> dict[str, ConfigScalar]:
+        """Read environment overrides using the provided key prefix."""
+        values: dict[str, ConfigScalar] = {}
         hints = get_type_hints(cls)
         for item in fields(cls):
             env_key = f"{prefix}{item.name}".upper()
-            raw = os.getenv(env_key)
+            raw = os_getenv(env_key)
             if raw is None:
                 continue
             expected_type = hints.get(item.name, str)
@@ -79,11 +104,12 @@ class GameConfig:
 
     @classmethod
     def load(
-        cls,
+        cls: type[GameConfig],
         *,
         yaml_path: str | Path | None = None,
         env_prefix: str = "STOCK_SIM_",
     ) -> GameConfig:
+        """Load config defaults, then YAML, then environment overrides."""
         config = cls()
         if yaml_path is not None:
             config = cls.from_yaml(yaml_path)
@@ -95,7 +121,10 @@ class GameConfig:
         return config
 
 
-def _coerce_env_value(raw: str, expected_type: Any) -> Any:
+def _coerce_env_value(raw: str, expected_type: type[bool] | type[int] | type[float] | type[str]) -> ConfigScalar:
+    """Parse one environment variable value to a supported scalar type."""
+    if expected_type not in {bool, int, float, str}:
+        expected_type = str
     value = raw.strip()
     if expected_type is bool:
         lowered = value.lower()

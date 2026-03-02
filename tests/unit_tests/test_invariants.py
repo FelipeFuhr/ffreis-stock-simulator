@@ -1,11 +1,11 @@
 from __future__ import annotations
 
-import math
 from collections.abc import Callable
+from math import isnan as math_isnan
 
-import pytest
 from hypothesis import HealthCheck, given, settings
 from hypothesis import strategies as st
+from pytest import approx as pytest_approx
 
 from stock_simulator.config import GameConfig
 from stock_simulator.data import MarketData
@@ -78,8 +78,8 @@ def test_engine_invariants(
         row = recorder.replay()[-1]
 
         expected_equity = state.cash + state.units * observation.price
-        assert state.equity == pytest.approx(expected_equity)
-        assert observation.equity == pytest.approx(expected_equity)
+        assert state.equity == pytest_approx(expected_equity)
+        assert observation.equity == pytest_approx(expected_equity)
 
         assert state.leverage <= cfg.max_leverage or state.equity <= 0.0
 
@@ -92,10 +92,10 @@ def test_engine_invariants(
             observation.equity,
             observation.leverage,
         )
-        assert all(not math.isnan(v) for v in values)
+        assert all(not math_isnan(v) for v in values)
 
         if row.fills == 0:
-            assert state.cash == pytest.approx(previous_cash)
+            assert state.cash == pytest_approx(previous_cash)
         previous_cash = state.cash
 
         if result.done:

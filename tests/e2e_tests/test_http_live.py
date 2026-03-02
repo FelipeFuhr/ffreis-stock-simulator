@@ -2,7 +2,8 @@ from __future__ import annotations
 
 from collections.abc import Callable
 
-import httpx
+from httpx import get as httpx_get
+from httpx import post as httpx_post
 
 from tests.conftest import RunningService
 
@@ -13,9 +14,9 @@ def test_http_service_health_ready_metrics(
     service = launch_http_server(engine_enabled=False)
     base = service.http_base_url
 
-    health = httpx.get(f"{base}/healthz", timeout=5.0)
-    ready = httpx.get(f"{base}/readyz", timeout=5.0)
-    metrics = httpx.get(f"{base}/metrics", timeout=5.0, follow_redirects=True)
+    health = httpx_get(f"{base}/healthz", timeout=5.0)
+    ready = httpx_get(f"{base}/readyz", timeout=5.0)
+    metrics = httpx_get(f"{base}/metrics", timeout=5.0, follow_redirects=True)
 
     assert health.status_code == 200
     assert health.json() == {"status": "ok"}
@@ -31,15 +32,15 @@ def test_http_engine_endpoints_live(
     service = launch_http_server(engine_enabled=True, with_market_data=True)
     base = service.http_base_url
 
-    reset = httpx.post(f"{base}/v1/reset", json={"seed": 2024}, timeout=5.0)
+    reset = httpx_post(f"{base}/v1/reset", json={"seed": 2024}, timeout=5.0)
     assert reset.status_code == 200
     assert reset.json()["state"]["t"] == 0
 
-    observe = httpx.get(f"{base}/v1/observe", timeout=5.0)
+    observe = httpx_get(f"{base}/v1/observe", timeout=5.0)
     assert observe.status_code == 200
     assert observe.json()["observation"]["market_window_handle"]["t"] >= 0
 
-    step_many = httpx.post(
+    step_many = httpx_post(
         f"{base}/v1/step_many",
         json={
             "actions": [
@@ -71,16 +72,16 @@ def test_http_failure_paths(
 ) -> None:
     service = launch_http_server(engine_enabled=True, with_market_data=True)
     base = service.http_base_url
-    _ = httpx.post(f"{base}/v1/reset", json={"seed": 11}, timeout=5.0)
+    _ = httpx_post(f"{base}/v1/reset", json={"seed": 11}, timeout=5.0)
 
-    invalid_payload = httpx.post(
+    invalid_payload = httpx_post(
         f"{base}/v1/step_many",
         json={"actions": "not-a-list"},
         timeout=5.0,
     )
     assert invalid_payload.status_code == 422
 
-    invalid_action = httpx.post(
+    invalid_action = httpx_post(
         f"{base}/v1/step_many",
         json={
             "actions": [
@@ -102,7 +103,7 @@ def test_http_misconfiguration_sets_not_ready(
     launch_http_server: Callable[..., RunningService],
 ) -> None:
     service = launch_http_server(engine_enabled=True, with_market_data=False)
-    ready = httpx.get(f"{service.http_base_url}/readyz", timeout=5.0)
+    ready = httpx_get(f"{service.http_base_url}/readyz", timeout=5.0)
 
     assert ready.status_code == 503
     payload = ready.json()

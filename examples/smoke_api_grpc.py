@@ -1,59 +1,94 @@
 from __future__ import annotations
 
-import json
-import os
-import time
-import urllib.request
+from http.client import HTTPConnection, HTTPSConnection
+from json import dumps as json_dumps
+from json import loads as json_loads
+from os import getenv as os_getenv
+from time import sleep as time_sleep
+from time import time as time_time
+from urllib.parse import urlsplit
 
-import grpc
+from grpc import insecure_channel as grpc_insecure_channel
 
 from stocksim_grpc import engine_pb2
 
 
-def _wait_http_ok(url: str, timeout_seconds: float = 30.0) -> bytes:
-    deadline = time.time() + timeout_seconds
+def _validate_http_base(api_base: str) -> tuple[str, str]:
+    parsed = urlsplit(api_base)
+    if parsed.scheme not in {"http", "https"}:
+        raise ValueError(f"SIM_API_BASE must use http or https scheme; got {parsed.scheme or '<empty>'}")
+    if not parsed.netloc:
+        raise ValueError("SIM_API_BASE must include network location (host[:port])")
+    return parsed.scheme, parsed.netloc
+
+
+def _http_request(
+    scheme: str,
+    netloc: str,
+    path: str,
+    *,
+    method: str = "GET",
+    body: bytes | None = None,
+    headers: dict[str, str] | None = None,
+    timeout_seconds: float = 5.0,
+) -> tuple[int, bytes]:
+    conn_cls = HTTPSConnection if scheme == "https" else HTTPConnection
+    conn = conn_cls(netloc, timeout=timeout_seconds)
+    conn.request(method, path, body=body, headers=headers or {})
+    response = conn.getresponse()
+    status = response.status
+    payload = response.read()
+    conn.close()
+    return status, payload
+
+
+def _wait_http_ok(scheme: str, netloc: str, path: str, timeout_seconds: float = 30.0) -> bytes:
+    deadline = time_time() + timeout_seconds
     last_error: Exception | None = None
-    while time.time() < deadline:
+    while time_time() < deadline:
         try:
-            with urllib.request.urlopen(url, timeout=3.0) as response:  # noqa: S310
-                if response.status == 200:
-                    return response.read()
+            status, payload = _http_request(scheme, netloc, path, timeout_seconds=3.0)
+            if status == 200:
+                return payload
         except Exception as exc:  # noqa: BLE001
             last_error = exc
-        time.sleep(0.5)
-    raise RuntimeError(f"timed out waiting for HTTP 200 at {url}: {last_error}")
+        time_sleep(0.5)
+    raise RuntimeError(f"timed out waiting for HTTP 200 at {path}: {last_error}")
 
 
 def _assert_http_endpoints(api_base: str) -> None:
-    health_body = _wait_http_ok(f"{api_base}/healthz")
-    ready_body = _wait_http_ok(f"{api_base}/readyz")
+    scheme, netloc = _validate_http_base(api_base)
+    health_body = _wait_http_ok(scheme, netloc, "/healthz")
+    ready_body = _wait_http_ok(scheme, netloc, "/readyz")
 
-    health_payload = json.loads(health_body.decode("utf-8"))
-    ready_payload = json.loads(ready_body.decode("utf-8"))
+    health_payload = json_loads(health_body.decode("utf-8"))
+    ready_payload = json_loads(ready_body.decode("utf-8"))
 
     assert health_payload.get("status") == "ok", health_payload
     assert ready_payload.get("status") == "ready", ready_payload
 
     if ready_payload.get("engine_enabled") is True:
-        reset_request = urllib.request.Request(
-            f"{api_base}/v1/reset",
-            data=json.dumps({"seed": 1234}).encode("utf-8"),
-            headers={"Content-Type": "application/json"},
+        status, reset_body = _http_request(
+            scheme,
+            netloc,
+            "/v1/reset",
             method="POST",
+            body=json_dumps({"seed": 1234}).encode("utf-8"),
+            headers={"Content-Type": "application/json"},
+            timeout_seconds=5.0,
         )
-        with urllib.request.urlopen(reset_request, timeout=5.0) as response:  # noqa: S310
-            assert response.status == 200
-            reset_payload = json.loads(response.read().decode("utf-8"))
+        assert status == 200
+        reset_payload = json_loads(reset_body.decode("utf-8"))
         assert reset_payload["state"]["t"] == 0
 
-        with urllib.request.urlopen(f"{api_base}/v1/observe", timeout=5.0) as response:  # noqa: S310
-            assert response.status == 200
-            observe_payload = json.loads(response.read().decode("utf-8"))
+        status, observe_body = _http_request(scheme, netloc, "/v1/observe", timeout_seconds=5.0)
+        assert status == 200
+        observe_payload = json_loads(observe_body.decode("utf-8"))
         assert observe_payload["observation"]["market_window_handle"]["t"] >= 0
 
 
 def _assert_grpc_endpoints(grpc_target: str) -> None:
-    with grpc.insecure_channel(grpc_target) as channel:
+    with grpc_insecure_channel(grpc_target) as channel:
         ping_rpc = channel.unary_unary(
             "/stocksim.grpc.EngineService/Ping",
             request_serializer=engine_pb2.PingRequest.SerializeToString,
@@ -85,8 +120,9 @@ def _assert_grpc_endpoints(grpc_target: str) -> None:
 
 
 def main() -> None:
-    api_base = os.getenv("SIM_API_BASE", "http://simulator-api:8000")
-    grpc_target = os.getenv("SIM_GRPC_TARGET", "simulator-grpc:50051")
+    # Prefer TLS by default; local compose smoke explicitly overrides to http.
+    api_base = os_getenv("SIM_API_BASE", "https://simulator-api:8000")
+    grpc_target = os_getenv("SIM_GRPC_TARGET", "simulator-grpc:50051")
 
     _assert_http_endpoints(api_base)
     _assert_grpc_endpoints(grpc_target)

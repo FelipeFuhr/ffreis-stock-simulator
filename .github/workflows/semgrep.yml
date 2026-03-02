@@ -5,14 +5,28 @@ on:
   pull_request:
     branches: [ main ]
     paths:
-      - "app/**"
+      - "src/**"
+      - "tests/**"
+      - "benchmarks/**"
+      - "examples/**"
+      - "scripts/**"
+      - "proto/**"
+      - "pyproject.toml"
+      - "uv.lock"
       - "container/**"
       - "Makefile"
       - ".github/workflows/semgrep.yml"
   push:
     branches: [ main ]
     paths:
-      - "app/**"
+      - "src/**"
+      - "tests/**"
+      - "benchmarks/**"
+      - "examples/**"
+      - "scripts/**"
+      - "proto/**"
+      - "pyproject.toml"
+      - "uv.lock"
       - "container/**"
       - "Makefile"
       - ".github/workflows/semgrep.yml"

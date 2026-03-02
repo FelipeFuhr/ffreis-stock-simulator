@@ -2,6 +2,8 @@
 
 The simulator exposes gRPC in addition to HTTP (FastAPI).
 
+Server reflection is intentionally not enabled in runtime paths.
+
 ## Install
 
 ```bash
@@ -30,6 +32,8 @@ Generated modules:
 - `src/stocksim_grpc/engine_pb2.py`
 - `src/stocksim_grpc/engine_pb2_grpc.py`
 
+These files are generated on demand and are not committed.
+
 ## Sync checks
 
 Regenerate:
@@ -42,4 +46,10 @@ Verify generated files are in sync with proto:
 
 ```bash
 make grpc-check
+```
+
+Remove generated stubs:
+
+```bash
+make grpc-clean
 ```

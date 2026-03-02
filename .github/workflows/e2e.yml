@@ -1,0 +1,59 @@
+name: E2E Tests
+
+on:
+  workflow_dispatch:
+  pull_request:
+    branches: [ main ]
+    paths:
+      - "src/**"
+      - "tests/e2e_tests/**"
+      - "proto/**"
+      - "scripts/**"
+      - "pyproject.toml"
+      - "uv.lock"
+      - "Makefile"
+      - ".github/workflows/e2e.yml"
+  push:
+    branches: [ main ]
+    paths:
+      - "src/**"
+      - "tests/e2e_tests/**"
+      - "proto/**"
+      - "scripts/**"
+      - "pyproject.toml"
+      - "uv.lock"
+      - "Makefile"
+      - ".github/workflows/e2e.yml"
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  e2e:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+
+    steps:
+      - uses: actions/checkout@v6
+
+      - uses: actions/setup-python@v6
+        with:
+          python-version: "3.13"
+
+      - uses: astral-sh/setup-uv@eac588ad8def6316056a12d4907a9d4d84ff7a3b
+        with:
+          enable-cache: true
+
+      - name: Install deps (dev+api+grpc, frozen)
+        run: |
+          set -euo pipefail
+          uv sync --frozen --extra dev --extra api --extra grpc
+
+      - name: Check generated gRPC stubs are current
+        run: make grpc-check
+
+      - name: Run e2e tests
+        run: |
+          set -euo pipefail
+          uv run --frozen pytest -q tests/e2e_tests

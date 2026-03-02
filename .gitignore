@@ -8,3 +8,51 @@ app/target/
 # Rust tooling
 .cargo/
 rustfmt.toml.bak
+
+# Python bytecode and caches
+__pycache__/
+*.py[cod]
+*$py.class
+
+# Python tooling caches
+.mypy_cache/
+.pytest_cache/
+.ruff_cache/
+.hypothesis/
+.pyre/
+.tox/
+.nox/
+
+# Virtual environments
+.venv/
+venv/
+env/
+
+# Coverage and test outputs
+.coverage
+.coverage.*
+htmlcov/
+coverage.xml
+
+# Generated gRPC stubs (generated on demand)
+src/stocksim_grpc/*_pb2.py
+src/stocksim_grpc/*_pb2_grpc.py
+
+# Build artifacts
+build/
+dist/
+*.egg-info/
+site/
+
+# Jupyter
+.ipynb_checkpoints/
+
+# IDE/editor
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# OS files
+.DS_Store
+Thumbs.db

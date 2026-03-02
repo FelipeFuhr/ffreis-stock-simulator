@@ -5,11 +5,11 @@ from collections.abc import Callable
 from stock_simulator.config import GameConfig
 from stock_simulator.data import MarketData
 from stock_simulator.env import MarketEnv
-from stock_simulator.recorder import InMemoryRecorder
+from stock_simulator.recorder import InMemoryRecorder, RecordedStep
 from stock_simulator.types import Action
 
 
-def _run_episode(seed: int, market_data_factory: Callable[..., MarketData]) -> tuple[float, tuple]:
+def _run_episode(seed: int, market_data_factory: Callable[..., MarketData]) -> tuple[float, tuple[RecordedStep, ...]]:
     recorder = InMemoryRecorder()
     env = MarketEnv(
         data=market_data_factory(n=300, slope=0.2, spread=0.4, volume=20_000.0),

@@ -3,7 +3,8 @@ services:
     build:
       context: ..
       dockerfile: container/Dockerfile
-    image: ffreis-stock-simulator:api-grpc-smoke
+    image: ${IMAGE_ROOT:-ffreis}-stock-simulator:${IMAGE_TAG:-api-grpc-smoke}
+    pull_policy: never
     command:
       - python
       - -m
@@ -25,7 +26,8 @@ services:
       retries: 20
 
   simulator-grpc:
-    image: ffreis-stock-simulator:api-grpc-smoke
+    image: ${IMAGE_ROOT:-ffreis}-stock-simulator:${IMAGE_TAG:-api-grpc-smoke}
+    pull_policy: never
     command:
       - python
       - -m
@@ -41,7 +43,8 @@ services:
       - "15051:50051"
 
   smoke:
-    image: ffreis-stock-simulator:api-grpc-smoke
+    image: ${IMAGE_ROOT:-ffreis}-stock-simulator:${IMAGE_TAG:-api-grpc-smoke}
+    pull_policy: never
     depends_on:
       simulator-api:
         condition: service_healthy
