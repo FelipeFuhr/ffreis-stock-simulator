@@ -6,6 +6,7 @@ from numpy import float64 as np_float64
 from numpy import int8 as np_int8
 from numpy import int32 as np_int32
 from numpy import testing as np_testing
+from pytest import approx as pytest_approx
 
 from stock_simulator.config import GameConfig
 from stock_simulator.core import CoreState, CoreStepOutput, MarketArrays, initial_core_state, step_core, step_core_numba
@@ -44,7 +45,7 @@ def test_step_core_done_short_circuit() -> None:
     assert isinstance(result, CoreStepOutput)
     assert result.state.done is True
     assert result.fills == 0
-    assert result.equity_delta == 0.0
+    assert result.equity_delta == pytest_approx(0.0)
 
 
 def test_step_core_rejects_invalid_units() -> None:

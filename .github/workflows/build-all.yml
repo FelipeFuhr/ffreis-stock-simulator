@@ -58,7 +58,7 @@ jobs:
       - name: Build and test
         run: |
           set -euo pipefail
-          uv sync --frozen --extra dev --extra grpc
+          uv sync --frozen --extra dev --extra api --extra grpc
           make grpc-check
           make openapi-check
           make lint

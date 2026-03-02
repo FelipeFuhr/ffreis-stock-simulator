@@ -55,7 +55,7 @@ jobs:
       - name: Install dependencies
         run: |
           set -euo pipefail
-          uv sync --frozen --extra dev --extra grpc
+          uv sync --frozen --extra dev --extra api --extra grpc
 
       - name: Audit dependencies (pip-audit)
         run: |

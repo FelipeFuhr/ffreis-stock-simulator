@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import sys
 from dataclasses import dataclass
+from pathlib import Path
 from typing import cast
 
 from numpy import asarray as np_asarray
@@ -84,13 +85,13 @@ class _FakeStepManyRequest:
 
 
 class _FakePb2:
-    MarketWindowViewHandle = _FakeMarketWindowViewHandle
-    Observation = _FakeObservation
-    EnvState = _FakeEnvState
-    PingResponse = _FakePingResponse
-    ResetResponse = _FakeResetResponse
-    ObserveResponse = _FakeObserveResponse
-    StepManyResponse = _FakeStepManyResponse
+    MarketWindowViewHandle = _FakeMarketWindowViewHandle  # NOSONAR - protobuf-generated API shape
+    Observation = _FakeObservation  # NOSONAR - protobuf-generated API shape
+    EnvState = _FakeEnvState  # NOSONAR - protobuf-generated API shape
+    PingResponse = _FakePingResponse  # NOSONAR - protobuf-generated API shape
+    ResetResponse = _FakeResetResponse  # NOSONAR - protobuf-generated API shape
+    ObserveResponse = _FakeObserveResponse  # NOSONAR - protobuf-generated API shape
+    StepManyResponse = _FakeStepManyResponse  # NOSONAR - protobuf-generated API shape
 
 
 class _FakeEnv:
@@ -156,7 +157,7 @@ class _FakePb2Grpc:
     def __init__(self) -> None:
         self.add_calls = 0
 
-    def add_EngineServiceServicer_to_server(  # noqa: N802
+    def add_EngineServiceServicer_to_server(  # noqa: N802  # NOSONAR - gRPC generated name contract
         self,
         _servicer: grpc_server_mod.EngineGrpcService,
         _server: _FakeGrpcServer,
@@ -181,12 +182,13 @@ def test_require_helpers_raise_when_stubs_unavailable(monkeypatch: MonkeyPatch) 
         assert "gRPC stubs are unavailable" in str(exc)
 
 
-def test_build_synthetic_market_data_and_loader(monkeypatch: MonkeyPatch) -> None:
+def test_build_synthetic_market_data_and_loader(monkeypatch: MonkeyPatch, tmp_path: Path) -> None:
     synthetic = grpc_server_mod._build_synthetic_market_data(bars=32, seed=9)
     assert synthetic.n == 32
 
     marker = object()
-    monkeypatch.setenv("MARKET_DATA_CSV", "/tmp/test.csv")
+    market_csv_path = tmp_path / "market.csv"
+    monkeypatch.setenv("MARKET_DATA_CSV", str(market_csv_path))
     monkeypatch.setattr(grpc_server_mod.MarketData, "from_csv", lambda _path: marker)
     loaded = grpc_server_mod._load_market_data()
     assert loaded is marker

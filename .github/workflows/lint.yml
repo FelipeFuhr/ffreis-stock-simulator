@@ -48,7 +48,7 @@ jobs:
       - name: Install deps (frozen)
         run: |
           set -euo pipefail
-          uv sync --frozen --extra dev --extra grpc
+          uv sync --frozen --extra dev --extra api --extra grpc
 
       - name: Ruff
         run: uv run --frozen ruff check src tests benchmarks examples

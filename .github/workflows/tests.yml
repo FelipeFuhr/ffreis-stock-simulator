@@ -41,27 +41,12 @@ jobs:
         with:
           enable-cache: true
 
-      - name: Install deps (dev+grpc, frozen)
+      - name: Install deps (dev+api+grpc, frozen)
         run: |
           set -euo pipefail
-          uv sync --frozen --extra dev --extra grpc
+          uv sync --frozen --extra dev --extra api --extra grpc
 
       - name: Run unit tests
         run: |
           set -euo pipefail
-          uv run --frozen pytest -q tests/unit_tests \
-            --cov=src \
-            --cov-report=xml:coverage-unit.xml \
-            --cov-report=term \
-            --cov-fail-under=0
-          test -s coverage-unit.xml
-
-      - name: Upload unit coverage to Codecov
-        if: ${{ github.event_name != 'pull_request' || github.event.pull_request.head.repo.fork == false }}
-        uses: codecov/codecov-action@671740ac38dd9b0130fbe1cec585b89eea48d3de
-        with:
-          files: ./coverage-unit.xml
-          flags: unit
-          name: unit-coverage
-          fail_ci_if_error: false
-          verbose: true
+          uv run --frozen pytest -q tests/unit_tests

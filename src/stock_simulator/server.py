@@ -1,21 +1,73 @@
 from __future__ import annotations
 
+from importlib import import_module as importlib_import_module
 from os import getenv as os_getenv
-from typing import Literal
+from types import ModuleType
+from typing import TYPE_CHECKING, Literal, Protocol, cast
 
-from fastapi import FastAPI, HTTPException, Response, status
 from numpy import asarray as np_asarray
 from numpy import float64 as np_float64
 from numpy import nan as np_nan
 from numpy.typing import NDArray
-from prometheus_client import make_asgi_app
 from pydantic import BaseModel, ConfigDict
-from uvicorn import run as uvicorn_run
 
 from .config import GameConfig
 from .data import MarketData
 from .env import MarketEnv
 from .types import EnvStateModel, MarketWindowViewHandleModel, ObservationModel
+
+if TYPE_CHECKING:
+    from fastapi import FastAPI
+
+
+class _UvicornRun(Protocol):
+    def __call__(self, app: str, *, host: str, port: int, reload: bool) -> None: ...
+
+
+class _MakeAsgiApp(Protocol):
+    def __call__(self) -> object: ...
+
+
+class _HTTPExceptionFactory(Protocol):
+    def __call__(self, *, status_code: int, detail: str) -> Exception: ...
+
+
+class _FastApiModule(Protocol):
+    FastAPI: type
+    HTTPException: _HTTPExceptionFactory
+    status: ModuleType
+
+
+def _load_fastapi_module() -> ModuleType | None:
+    try:
+        return importlib_import_module("fastapi")
+    except ModuleNotFoundError:
+        return None
+
+
+def _load_uvicorn_run() -> _UvicornRun | None:
+    try:
+        return importlib_import_module("uvicorn").run
+    except ModuleNotFoundError:
+        return None
+
+
+def _load_make_asgi_app() -> _MakeAsgiApp | None:
+    try:
+        return importlib_import_module("prometheus_client").make_asgi_app
+    except ModuleNotFoundError:
+        return None
+
+
+def _require_api_dependencies() -> tuple[_FastApiModule, _MakeAsgiApp, _UvicornRun]:
+    if fastapi_module is None or make_asgi_app is None or uvicorn_run is None:
+        raise RuntimeError("HTTP API dependencies are unavailable. Install with `uv sync --extra api`.")
+    return cast(_FastApiModule, fastapi_module), make_asgi_app, uvicorn_run
+
+
+fastapi_module = _load_fastapi_module()
+uvicorn_run = _load_uvicorn_run()
+make_asgi_app = _load_make_asgi_app()
 
 
 class HealthzResponse(BaseModel):
@@ -118,6 +170,12 @@ def _load_engine() -> MarketEnv:
 
 def create_app() -> FastAPI:
     """Create the HTTP service app with health/readiness and metrics endpoints."""
+    fastapi_mod, make_asgi_app, _ = _require_api_dependencies()
+    JSONResponse = importlib_import_module("fastapi.responses").JSONResponse
+    FastAPI = fastapi_mod.FastAPI
+    HTTPException = fastapi_mod.HTTPException
+    status = fastapi_mod.status
+
     app = FastAPI(
         title="Stock Simulator Service",
         version="0.1.0",
@@ -153,13 +211,16 @@ def create_app() -> FastAPI:
         return HealthzResponse(status="ok")
 
     @app.get("/readyz", response_model=ReadyzResponse)
-    async def readyz(response: Response) -> ReadyzResponse:
+    async def readyz() -> object:
         if not runtime.engine_ready:
-            response.status_code = status.HTTP_503_SERVICE_UNAVAILABLE
-            return ReadyzResponse(
+            payload = ReadyzResponse(
                 status="not_ready",
                 engine_enabled=runtime.engine_enabled,
                 engine_ready=False,
+            )
+            return JSONResponse(
+                status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+                content=payload.model_dump(),
             )
         return ReadyzResponse(
             status="ready",
@@ -234,14 +295,20 @@ def create_app() -> FastAPI:
     return app
 
 
-app = create_app()
+if fastapi_module is not None and make_asgi_app is not None:
+    app: FastAPI | None = create_app()
+else:
+    app = None
 
 
 def main() -> None:
     """Run the ASGI server entrypoint."""
+    _, _, uvicorn_run_required = _require_api_dependencies()
+    if app is None:
+        raise RuntimeError("HTTP API app is unavailable. Install with `uv sync --extra api`.")
     host = os_getenv("HOST", "0.0.0.0")
     port = int(os_getenv("PORT", "8000"))
-    uvicorn_run("stock_simulator.server:app", host=host, port=port, reload=False)
+    uvicorn_run_required("stock_simulator.server:app", host=host, port=port, reload=False)
 
 
 if __name__ == "__main__":

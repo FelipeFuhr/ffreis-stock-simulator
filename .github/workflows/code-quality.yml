@@ -54,7 +54,7 @@ jobs:
       - name: Install dependencies (frozen)
         run: |
           set -euo pipefail
-          uv sync --frozen --extra dev --extra grpc
+          uv sync --frozen --extra dev --extra api --extra grpc
 
       - name: Generate coverage for Sonar
         run: |

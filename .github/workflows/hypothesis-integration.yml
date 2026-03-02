@@ -36,7 +36,7 @@ jobs:
 
       - name: Install dependencies (frozen)
         run: |
-          uv sync --frozen --extra dev --extra grpc
+          uv sync --frozen --extra dev --extra api --extra grpc
 
       - name: Generate and verify gRPC stubs
         run: |
@@ -75,7 +75,7 @@ jobs:
 
       - name: Install dependencies (frozen)
         run: |
-          uv sync --frozen --extra dev --extra grpc
+          uv sync --frozen --extra dev --extra api --extra grpc
 
       - name: Generate and verify gRPC stubs
         run: |

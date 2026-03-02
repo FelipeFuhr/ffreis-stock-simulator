@@ -26,7 +26,7 @@ jobs:
       - name: Install dependencies (frozen)
         run: |
           test -s uv.lock || (echo "uv.lock missing - run uv lock"; exit 1)
-          uv sync --frozen --extra dev --extra grpc
+          uv sync --frozen --extra dev --extra api --extra grpc
 
       - name: gRPC stub sync check
         run: make grpc-check

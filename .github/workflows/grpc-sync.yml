@@ -25,7 +25,7 @@ jobs:
 
       - name: Install dependencies (uv)
         run: |
-          uv sync --frozen --extra dev --extra grpc
+          uv sync --frozen --extra dev --extra api --extra grpc
 
       - name: Check generated gRPC stubs are current
         run: make grpc-check

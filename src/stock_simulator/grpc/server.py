@@ -5,12 +5,8 @@ from concurrent.futures import ThreadPoolExecutor as concurrentfutures_ThreadPoo
 from importlib import import_module as importlib_import_module
 from os import getenv as os_getenv
 from types import ModuleType
-from typing import Protocol, cast
+from typing import TYPE_CHECKING, Protocol, cast
 
-from grpc import Server as grpc_Server
-from grpc import ServicerContext as grpc_ServicerContext
-from grpc import StatusCode as grpc_StatusCode
-from grpc import server as grpc_server
 from numpy import asarray as np_asarray
 from numpy import cumprod as np_cumprod
 from numpy import float64 as np_float64
@@ -28,9 +24,50 @@ from ..data import MarketData
 from ..env import MarketEnv
 from ..types import EnvState, Observation
 
+if TYPE_CHECKING:
+    from grpc import Server as grpc_Server
+    from grpc import ServicerContext as grpc_ServicerContext
+else:
+    grpc_Server = object
+    grpc_ServicerContext = object
+
 
 class ProtoMessage(Protocol):
     """Marker protocol for protobuf request/response objects."""
+
+
+class _GrpcStatusCode(Protocol):
+    INVALID_ARGUMENT: object
+
+
+class _GrpcServerFactory(Protocol):
+    def __call__(self, thread_pool: concurrentfutures_ThreadPoolExecutor) -> grpc_Server: ...
+
+
+class _GrpcModule(Protocol):
+    StatusCode: _GrpcStatusCode
+
+    def server(self, thread_pool: concurrentfutures_ThreadPoolExecutor) -> grpc_Server: ...
+
+
+def _load_grpc_module() -> ModuleType | None:
+    """Load grpc runtime module when present."""
+    try:
+        return importlib_import_module("grpc")
+    except ModuleNotFoundError:
+        return None
+
+
+grpc_module = _load_grpc_module()
+grpc_server = cast(_GrpcServerFactory | None, getattr(grpc_module, "server", None)) if grpc_module is not None else None
+grpc_StatusCode = cast(_GrpcStatusCode | None, getattr(grpc_module, "StatusCode", None)) if grpc_module else None
+
+
+def _require_grpc_module() -> _GrpcModule:
+    """Return grpc runtime module or raise actionable error."""
+    if grpc_module is None:
+        raise RuntimeError("gRPC runtime is unavailable. Install with `uv sync --extra grpc`.")
+    return cast(_GrpcModule, grpc_module)
 
 
 def _load_engine_pb2_module() -> ModuleType | None:
@@ -213,37 +250,29 @@ class EngineGrpcService:
         self._env = env
 
     # gRPC-generated server dispatch expects PascalCase RPC method names.
-    def Ping(self, request: ProtoMessage, context: grpc_ServicerContext | None) -> ProtoMessage:  # noqa: N802
-        return self.ping(request, context)
-
-    def Reset(self, request: _RequestWithSeed, context: grpc_ServicerContext | None) -> ProtoMessage:  # noqa: N802
-        return self.reset(request, context)
-
-    def Observe(self, request: ProtoMessage, context: grpc_ServicerContext | None) -> ProtoMessage:  # noqa: N802
-        return self.observe(request, context)
-
-    def StepMany(self, request: _RequestWithActions, context: grpc_ServicerContext | None) -> ProtoMessage:  # noqa: N802
-        return self.step_many(request, context)
-
-    def ping(self, request: ProtoMessage, context: grpc_ServicerContext | None) -> ProtoMessage:
+    def Ping(self, request: ProtoMessage, context: grpc_ServicerContext | None) -> ProtoMessage:  # noqa: N802  # NOSONAR
         _ = (request, context)
         pb2 = _require_engine_pb2()
         return pb2.PingResponse(status="pong")
 
-    def reset(self, request: _RequestWithSeed, context: grpc_ServicerContext | None) -> ProtoMessage:
+    def Reset(  # noqa: N802  # NOSONAR
+        self, request: _RequestWithSeed, context: grpc_ServicerContext | None
+    ) -> ProtoMessage:
         _ = context
         pb2 = _require_engine_pb2()
         seed: int | None = int(request.seed) if request.has_seed else None
         state = self._env.reset(seed=seed)
         return pb2.ResetResponse(state=_state_to_proto(state))
 
-    def observe(self, request: ProtoMessage, context: grpc_ServicerContext | None) -> ProtoMessage:
+    def Observe(self, request: ProtoMessage, context: grpc_ServicerContext | None) -> ProtoMessage:  # noqa: N802  # NOSONAR
         _ = (request, context)
         pb2 = _require_engine_pb2()
         observation = self._env.observe()
         return pb2.ObserveResponse(observation=_observation_to_proto(observation))
 
-    def step_many(self, request: _RequestWithActions, context: grpc_ServicerContext | None) -> ProtoMessage:
+    def StepMany(  # noqa: N802  # NOSONAR
+        self, request: _RequestWithActions, context: grpc_ServicerContext | None
+    ) -> ProtoMessage:
         pb2 = _require_engine_pb2()
         if len(request.actions) == 0:
             return pb2.StepManyResponse()
@@ -265,6 +294,8 @@ class EngineGrpcService:
         except ValueError as exc:
             if context is None:
                 raise
+            if grpc_StatusCode is None:
+                raise RuntimeError("gRPC runtime is unavailable. Install with `uv sync --extra grpc`.") from exc
             context.abort(grpc_StatusCode.INVALID_ARGUMENT, str(exc))
             raise AssertionError("context.abort should raise") from exc
 
@@ -304,6 +335,9 @@ def create_server(
     env = MarketEnv(data=market_data, cfg=config)
     env.reset(seed=config.seed)
 
+    _require_grpc_module()
+    if grpc_server is None:
+        raise RuntimeError("gRPC runtime is unavailable. Install with `uv sync --extra grpc`.")
     server = grpc_server(concurrentfutures_ThreadPoolExecutor(max_workers=max_workers))
     pb2_grpc = _require_engine_pb2_grpc()
     pb2_grpc.add_EngineServiceServicer_to_server(EngineGrpcService(env), server)

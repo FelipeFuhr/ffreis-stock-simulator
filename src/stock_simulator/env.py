@@ -150,13 +150,17 @@ class MarketEnv:
                     )
             execution = summarize_execution(output)
             self._core_state = output.state
+            if execution.fills == 0:
+                fill_bucket = "none"
+            elif execution.fills == 1:
+                fill_bucket = "single"
+            else:
+                fill_bucket = "multi"
             with self._telemetry.child_span(
                 "orders.fill",
                 {
                     "sim.has_fill": execution.fills > 0,
-                    "sim.fill_bucket": (
-                        "none" if execution.fills == 0 else "single" if execution.fills == 1 else "multi"
-                    ),
+                    "sim.fill_bucket": fill_bucket,
                 },
             ):
                 if execution.fills > 0:

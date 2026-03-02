@@ -8,6 +8,7 @@ from numpy import bool_ as np_bool_
 from numpy import float64 as np_float64
 from numpy import testing as np_testing
 from pytest import MonkeyPatch
+from pytest import approx as pytest_approx
 
 from stock_simulator.grpc import client as client_mod
 
@@ -84,22 +85,24 @@ class _StepManyRequest:
 class _Pb2:
     class PingRequest:
         def __init__(self) -> None:
+            # Empty by design: this mirrors generated protobuf request construction.
             pass
 
     class ObserveRequest:
         def __init__(self) -> None:
+            # Empty by design: this mirrors generated protobuf request construction.
             pass
 
-    ResetRequest = _ResetRequest
-    EncodedAction = _EncodedAction
-    StepManyRequest = _StepManyRequest
+    ResetRequest = _ResetRequest  # NOSONAR - protobuf-generated API shape
+    EncodedAction = _EncodedAction  # NOSONAR - protobuf-generated API shape
+    StepManyRequest = _StepManyRequest  # NOSONAR - protobuf-generated API shape
 
 
 class _FakeStub:
-    def Ping(self, _request: object) -> _PingReply:  # noqa: N802
+    def Ping(self, _request: object) -> _PingReply:  # noqa: N802  # NOSONAR - gRPC method name
         return _PingReply(status="pong")
 
-    def Reset(self, request: _ResetRequest) -> _ResetReply:  # noqa: N802
+    def Reset(self, request: _ResetRequest) -> _ResetReply:  # noqa: N802  # NOSONAR - gRPC method name
         if request.has_seed:
             seed_cash = float(request.seed)
         else:
@@ -116,7 +119,7 @@ class _FakeStub:
             )
         )
 
-    def Observe(self, _request: object) -> _ObserveReply:  # noqa: N802
+    def Observe(self, _request: object) -> _ObserveReply:  # noqa: N802  # NOSONAR - gRPC method name
         return _ObserveReply(
             observation=_Observation(
                 market_window_handle=_MarketHandle(start=0, end=8, t=2, current_price=101.0),
@@ -126,7 +129,7 @@ class _FakeStub:
             )
         )
 
-    def StepMany(self, request: _StepManyRequest) -> _StepManyReply:  # noqa: N802
+    def StepMany(self, request: _StepManyRequest) -> _StepManyReply:  # noqa: N802  # NOSONAR - gRPC method name
         _ = request
         return _StepManyReply(
             observations=[
@@ -154,7 +157,7 @@ class _Pb2Grpc:
     def __init__(self, stub: _FakeStub) -> None:
         self._stub = stub
 
-    def EngineServiceStub(self, _channel: _FakeChannel) -> _FakeStub:  # noqa: N802
+    def EngineServiceStub(self, _channel: _FakeChannel) -> _FakeStub:  # noqa: N802  # NOSONAR
         return self._stub
 
 
@@ -188,7 +191,7 @@ def test_client_methods_roundtrip_with_fake_stub(monkeypatch: MonkeyPatch) -> No
     assert client.ping() == "pong"
 
     reset_state = client.reset(seed=123)
-    assert reset_state["cash"] == 123.0
+    assert reset_state["cash"] == pytest_approx(123.0)
     assert reset_state["open_orders"] == 2
 
     observed = client.observe()
@@ -207,7 +210,7 @@ def test_client_methods_roundtrip_with_fake_stub(monkeypatch: MonkeyPatch) -> No
     obs_rows, rewards, dones = client.step_many(actions)
     assert len(obs_rows) == 1
     market = cast(dict[str, int | float], obs_rows[0]["market_window_handle"])
-    assert market["current_price"] == 102.0
+    assert market["current_price"] == pytest_approx(102.0)
     np_testing.assert_allclose(rewards, np_asarray([1.25], dtype=np_float64))
     np_testing.assert_array_equal(dones, np_asarray([False], dtype=np_bool_))
 

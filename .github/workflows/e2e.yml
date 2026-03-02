@@ -45,10 +45,10 @@ jobs:
         with:
           enable-cache: true
 
-      - name: Install deps (dev+grpc, frozen)
+      - name: Install deps (dev+api+grpc, frozen)
         run: |
           set -euo pipefail
-          uv sync --frozen --extra dev --extra grpc
+          uv sync --frozen --extra dev --extra api --extra grpc
 
       - name: Check generated gRPC stubs are current
         run: make grpc-check
@@ -56,19 +56,4 @@ jobs:
       - name: Run e2e tests
         run: |
           set -euo pipefail
-          uv run --frozen pytest -q tests/e2e_tests \
-            --cov=src \
-            --cov-report=xml:coverage-e2e.xml \
-            --cov-report=term \
-            --cov-fail-under=0
-          test -s coverage-e2e.xml
-
-      - name: Upload e2e coverage to Codecov
-        if: ${{ github.event_name != 'pull_request' || github.event.pull_request.head.repo.fork == false }}
-        uses: codecov/codecov-action@671740ac38dd9b0130fbe1cec585b89eea48d3de
-        with:
-          files: ./coverage-e2e.xml
-          flags: e2e
-          name: e2e-coverage
-          fail_ci_if_error: false
-          verbose: true
+          uv run --frozen pytest -q tests/e2e_tests

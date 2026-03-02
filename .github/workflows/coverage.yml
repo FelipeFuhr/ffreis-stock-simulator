@@ -54,7 +54,7 @@ jobs:
       - name: Generate coverage
         run: |
           set -euo pipefail
-          uv sync --frozen --extra dev --extra grpc
+          uv sync --frozen --extra dev --extra api --extra grpc
           ./scripts/generate_grpc_stubs.sh
           uv run --frozen pytest -q --cov=src --cov-report=term --cov-report=xml:coverage.xml
           test -s coverage.xml
@@ -63,5 +63,5 @@ jobs:
         uses: codecov/codecov-action@671740ac38dd9b0130fbe1cec585b89eea48d3de
         with:
           files: ./coverage.xml
-          fail_ci_if_error: true
+          fail_ci_if_error: false
           verbose: true

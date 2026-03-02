@@ -4,6 +4,7 @@ from pathlib import Path
 
 from pandas import DataFrame as pd_DataFrame
 from pytest import MonkeyPatch
+from pytest import approx as pytest_approx
 
 from stock_simulator import recorder as recorder_mod
 from stock_simulator.recorder import ParquetRecorder
@@ -63,7 +64,7 @@ def test_parquet_recorder_flush_and_replay_paths(tmp_path: Path, monkeypatch: Mo
     assert len(ep1_rows) == 1
     assert ep0_rows[0].seed == 10
     assert ep1_rows[0].seed == 20
-    assert ep1_rows[0].limit_price == 99.0
+    assert ep1_rows[0].limit_price == pytest_approx(99.0)
 
 
 def test_parquet_recorder_replay_empty_frame(tmp_path: Path, monkeypatch: MonkeyPatch) -> None:

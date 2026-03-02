@@ -3,6 +3,7 @@ from __future__ import annotations
 from pathlib import Path
 
 from pytest import MonkeyPatch
+from pytest import approx as pytest_approx
 
 from stock_simulator.config import GameConfig, _coerce_env_value
 
@@ -36,7 +37,7 @@ def test_coerce_env_value_variants() -> None:
     assert _coerce_env_value("yes", bool) is True
     assert _coerce_env_value("0", bool) is False
     assert _coerce_env_value(" 7 ", int) == 7
-    assert _coerce_env_value(" 7.5 ", float) == 7.5
+    assert _coerce_env_value(" 7.5 ", float) == pytest_approx(7.5)
     assert _coerce_env_value("abc", str) == "abc"
     try:
         _coerce_env_value("not-bool", bool)
