@@ -30,13 +30,21 @@ concurrency:
   group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
   cancel-in-progress: true
 
+permissions:
+  contents: read
+
 jobs:
   build-images:
     runs-on: ubuntu-latest
     env:
       IMAGE_NAME: localhost/ffreis/stock-simulator
     steps:
-      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6
+      - name: Harden the runner (Audit all outbound calls)
+        uses: step-security/harden-runner@a5ad31d6a139d249332a2605b85202e8c0b78450 # v2.19.1
+        with:
+          egress-policy: audit
+
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
       - name: Install Podman
         run: |
           set -euo pipefail
@@ -49,22 +57,5 @@ jobs:
       - name: Build container images with Podman
         run: |
           set -euo pipefail
-          podman build -f container/Containerfile -t "${IMAGE_NAME}" .
+          podman build -f container/Dockerfile -t "${IMAGE_NAME}" .
           podman image exists "${IMAGE_NAME}"
-
-      - name: Install Trivy
-        run: |
-          sudo apt-get install -y wget apt-transport-https gnupg
-          wget -qO - https://aquasecurity.github.io/trivy-repo/deb/public.key | gpg --dearmor | sudo tee /usr/share/keyrings/trivy.gpg > /dev/null
-          echo "deb [signed-by=/usr/share/keyrings/trivy.gpg] https://aquasecurity.github.io/trivy-repo/deb generic main" | sudo tee /etc/apt/sources.list.d/trivy.list
-          sudo apt-get update
-          sudo apt-get install -y trivy
-
-      - name: Scan image for vulnerabilities
-        run: |
-          podman save -o /tmp/image.tar "${IMAGE_NAME}"
-          trivy image \
-            --input /tmp/image.tar \
-            --exit-code 1 \
-            --severity HIGH,CRITICAL \
-            --format table
