@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 import sys
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from pathlib import Path
 from typing import cast
 
@@ -60,9 +60,30 @@ class _FakeObserveResponse:
 
 @dataclass
 class _FakeStepManyResponse:
-    observations: list[_FakeObservation]
-    rewards: list[float]
-    dones: list[bool]
+    observations: list[_FakeObservation] = field(default_factory=list)
+    rewards: list[float] = field(default_factory=list)
+    dones: list[bool] = field(default_factory=list)
+    trace: list[object] = field(default_factory=list)
+
+
+@dataclass
+class _FakeStepTraceRow:
+    index: int
+    side_code: int
+    requested_units: float
+    order_type_code: int
+    has_limit_price: bool
+    limit_price: float
+    fills: int
+    reward: float
+    done: bool
+    t: int
+    cash: float
+    position_units: float
+    equity: float
+    leverage: float
+    open_orders: int
+    market_price: float
 
 
 @dataclass
@@ -83,6 +104,7 @@ class _FakeResetRequest:
 @dataclass
 class _FakeStepManyRequest:
     actions: list[_FakeAction]
+    include_trace: bool = False
 
 
 class _FakePb2:
@@ -93,6 +115,7 @@ class _FakePb2:
     ResetResponse = _FakeResetResponse  # NOSONAR - protobuf-generated API shape
     ObserveResponse = _FakeObserveResponse  # NOSONAR - protobuf-generated API shape
     StepManyResponse = _FakeStepManyResponse  # NOSONAR - protobuf-generated API shape
+    StepTraceRow = _FakeStepTraceRow  # NOSONAR - protobuf-generated API shape
 
 
 class _FakeEnv:
@@ -120,7 +143,12 @@ class _FakeEnv:
             done=False,
         )
 
-    def step_many(self, _matrix: object) -> tuple[dict[str, object], object, object]:
+    def step_many(
+        self,
+        _matrix: object,
+        *,
+        include_trace: bool = False,
+    ) -> tuple[dict[str, object], object, object, tuple[_FakeStepTraceRow, ...]]:
         if self.raise_on_step:
             raise ValueError("bad action payload")
         observations: dict[str, object] = {
@@ -130,7 +158,31 @@ class _FakeEnv:
         }
         rewards = np_asarray([5.5], dtype=np_float64)
         dones = np_asarray([False], dtype=np_float64)
-        return observations, cast(object, rewards), cast(object, dones)
+        trace = (
+            (
+                _FakeStepTraceRow(
+                    index=0,
+                    side_code=1,
+                    requested_units=1.0,
+                    order_type_code=0,
+                    has_limit_price=False,
+                    limit_price=0.0,
+                    fills=1,
+                    reward=5.5,
+                    done=False,
+                    t=5,
+                    cash=999.0,
+                    position_units=1.0,
+                    equity=1103.0,
+                    leverage=0.1,
+                    open_orders=1,
+                    market_price=104.0,
+                ),
+            )
+            if include_trace
+            else ()
+        )
+        return observations, cast(object, rewards), cast(object, dones), trace
 
 
 class _FakeContext:
@@ -226,7 +278,8 @@ def test_engine_grpc_service_methods(monkeypatch: MonkeyPatch) -> None:
     assert observe.observation.market_window_handle.t == 4
 
     request = _FakeStepManyRequest(
-        actions=[_FakeAction(side_code=1, units=1.0, order_type_code=0, has_limit_price=False, limit_price=0.0)]
+        actions=[_FakeAction(side_code=1, units=1.0, order_type_code=0, has_limit_price=False, limit_price=0.0)],
+        include_trace=True,
     )
     step_many = cast(
         _FakeStepManyResponse,
@@ -237,6 +290,7 @@ def test_engine_grpc_service_methods(monkeypatch: MonkeyPatch) -> None:
     )
     assert step_many.rewards == [5.5]
     assert step_many.dones == [False]
+    assert len(step_many.trace) == 1
 
 
 def test_engine_grpc_service_step_many_error_path(monkeypatch: MonkeyPatch) -> None:

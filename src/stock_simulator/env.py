@@ -24,7 +24,7 @@ from .portal import MarketPortal
 from .portfolio import snapshot_from_state
 from .recorder import NullRecorder, Recorder
 from .telemetry import get_telemetry
-from .types import Action, EnvState, Observation, OrderType, Side, StepResult
+from .types import Action, EnvState, Observation, OrderType, Side, StepResult, StepTraceRow
 
 
 class MarketEnv:
@@ -191,8 +191,11 @@ class MarketEnv:
             return StepResult(state=state, observation=observation, done=self._core_state.done)
 
     def step_many(
-        self, actions: NDArray[np_float64]
-    ) -> tuple[dict[str, NDArray[np_float64]], NDArray[np_float64], NDArray[np_bool_]]:
+        self,
+        actions: NDArray[np_float64],
+        *,
+        include_trace: bool = False,
+    ) -> tuple[dict[str, NDArray[np_float64]], NDArray[np_float64], NDArray[np_bool_], tuple[StepTraceRow, ...]]:
         """Execute multiple encoded actions in a tight loop.
 
         Parameters
@@ -203,8 +206,8 @@ class MarketEnv:
 
         Returns
         -------
-        tuple[dict[str, numpy.ndarray], numpy.ndarray, numpy.ndarray]
-            Stacked observations, rewards, and done flags.
+        tuple[dict[str, numpy.ndarray], numpy.ndarray, numpy.ndarray, tuple[StepTraceRow, ...]]
+            Stacked observations, rewards, done flags, and optional trace rows.
         """
         if actions.ndim != 2 or actions.shape[1] != 4:
             raise ValueError("actions must have shape [num_steps, 4]")
@@ -215,6 +218,7 @@ class MarketEnv:
         order_summary_vectors = np_zeros((num_steps, 3), dtype=np_float64)
         rewards = np_zeros(num_steps, dtype=np_float64)
         dones = np_zeros(num_steps, dtype=np_bool_)
+        trace_rows: list[StepTraceRow] = []
         random_draws_batch = self._rng.uniform(
             self._cfg.partial_fill_min,
             self._cfg.partial_fill_max,
@@ -223,6 +227,8 @@ class MarketEnv:
 
         # Intentionally bypass telemetry/recorder callbacks for headless bulk execution.
         for i in range(num_steps):
+            action_side_code, action_units, action_order_code, action_limit = actions[i]
+            step_fills = 0
             if self._core_state.done:
                 observation = self.observe()
                 tensors = observation.to_numpy_tensors()
@@ -231,73 +237,72 @@ class MarketEnv:
                 order_summary_vectors[i] = tensors["order_summary_vector"]
                 rewards[i] = 0.0
                 dones[i] = True
-                continue
-
-            action_side_code, action_units, action_order_code, action_limit = actions[i]
-            if self._cfg.use_numba:
-                (
-                    next_t,
-                    next_done,
-                    next_portfolio,
-                    next_order_active,
-                    next_order_side,
-                    next_order_type,
-                    next_order_units,
-                    next_order_limit_price,
-                    next_order_eligible_t,
-                    next_order_ttl,
-                    _fills,
-                    equity_delta,
-                ) = step_core_jit(
-                    t=self._core_state.t,
-                    done=self._core_state.done,
-                    portfolio=self._core_state.portfolio,
-                    order_active=self._core_state.order_active,
-                    order_side=self._core_state.order_side,
-                    order_type=self._core_state.order_type,
-                    order_units=self._core_state.order_units,
-                    order_limit_price=self._core_state.order_limit_price,
-                    order_eligible_t=self._core_state.order_eligible_t,
-                    order_ttl=self._core_state.order_ttl,
-                    action_side=np_int8(int(action_side_code)),
-                    action_units=float(action_units),
-                    action_order_type=np_int8(int(action_order_code)),
-                    action_limit_price=(0.0 if np_isnan(action_limit) else float(action_limit)),
-                    market_open=self._market_arrays.open,
-                    market_high=self._market_arrays.high,
-                    market_low=self._market_arrays.low,
-                    market_close=self._market_arrays.close,
-                    market_n=self._market_arrays.n,
-                    market_latency_bars=self._cfg.market_latency_bars,
-                    limit_ttl_bars=self._cfg.limit_ttl_bars,
-                    random_draws=random_draws_batch[i],
-                    fee_bps=self._cfg.fee_bps,
-                    slippage_bps=self._cfg.slippage_bps,
-                )
-                self._core_state = CoreState(
-                    t=int(next_t),
-                    done=bool(next_done),
-                    portfolio=next_portfolio,
-                    order_active=next_order_active,
-                    order_side=next_order_side,
-                    order_type=next_order_type,
-                    order_units=next_order_units,
-                    order_limit_price=next_order_limit_price,
-                    order_eligible_t=next_order_eligible_t,
-                    order_ttl=next_order_ttl,
-                )
-                rewards[i] = float(equity_delta)
             else:
-                action = self._action_from_encoded_row(actions[i])
-                output = step_core(
-                    state=self._core_state,
-                    action=action,
-                    market_arrays=self._market_arrays,
-                    config=self._cfg,
-                    random_draws=random_draws_batch[i],
-                )
-                self._core_state = output.state
-                rewards[i] = float(output.equity_delta)
+                if self._cfg.use_numba:
+                    (
+                        next_t,
+                        next_done,
+                        next_portfolio,
+                        next_order_active,
+                        next_order_side,
+                        next_order_type,
+                        next_order_units,
+                        next_order_limit_price,
+                        next_order_eligible_t,
+                        next_order_ttl,
+                        step_fills,
+                        equity_delta,
+                    ) = step_core_jit(
+                        t=self._core_state.t,
+                        done=self._core_state.done,
+                        portfolio=self._core_state.portfolio,
+                        order_active=self._core_state.order_active,
+                        order_side=self._core_state.order_side,
+                        order_type=self._core_state.order_type,
+                        order_units=self._core_state.order_units,
+                        order_limit_price=self._core_state.order_limit_price,
+                        order_eligible_t=self._core_state.order_eligible_t,
+                        order_ttl=self._core_state.order_ttl,
+                        action_side=np_int8(int(action_side_code)),
+                        action_units=float(action_units),
+                        action_order_type=np_int8(int(action_order_code)),
+                        action_limit_price=(0.0 if np_isnan(action_limit) else float(action_limit)),
+                        market_open=self._market_arrays.open,
+                        market_high=self._market_arrays.high,
+                        market_low=self._market_arrays.low,
+                        market_close=self._market_arrays.close,
+                        market_n=self._market_arrays.n,
+                        market_latency_bars=self._cfg.market_latency_bars,
+                        limit_ttl_bars=self._cfg.limit_ttl_bars,
+                        random_draws=random_draws_batch[i],
+                        fee_bps=self._cfg.fee_bps,
+                        slippage_bps=self._cfg.slippage_bps,
+                    )
+                    self._core_state = CoreState(
+                        t=int(next_t),
+                        done=bool(next_done),
+                        portfolio=next_portfolio,
+                        order_active=next_order_active,
+                        order_side=next_order_side,
+                        order_type=next_order_type,
+                        order_units=next_order_units,
+                        order_limit_price=next_order_limit_price,
+                        order_eligible_t=next_order_eligible_t,
+                        order_ttl=next_order_ttl,
+                    )
+                    rewards[i] = float(equity_delta)
+                else:
+                    action = self._action_from_encoded_row(actions[i])
+                    output = step_core(
+                        state=self._core_state,
+                        action=action,
+                        market_arrays=self._market_arrays,
+                        config=self._cfg,
+                        random_draws=random_draws_batch[i],
+                    )
+                    self._core_state = output.state
+                    rewards[i] = float(output.equity_delta)
+                    step_fills = output.fills
 
             observation = self.observe()
             tensors = observation.to_numpy_tensors()
@@ -305,6 +310,28 @@ class MarketEnv:
             portfolio_vectors[i] = tensors["portfolio_vector"]
             order_summary_vectors[i] = tensors["order_summary_vector"]
             dones[i] = self._core_state.done
+            if include_trace:
+                has_limit_price = not np_isnan(action_limit)
+                trace_rows.append(
+                    StepTraceRow(
+                        index=i,
+                        side_code=int(action_side_code),
+                        requested_units=float(action_units),
+                        order_type_code=int(action_order_code),
+                        has_limit_price=bool(has_limit_price),
+                        limit_price=None if not has_limit_price else float(action_limit),
+                        fills=int(step_fills),
+                        reward=float(rewards[i]),
+                        done=bool(dones[i]),
+                        t=observation.t,
+                        cash=observation.cash,
+                        position_units=observation.units,
+                        equity=observation.equity,
+                        leverage=observation.leverage,
+                        open_orders=observation.open_orders,
+                        market_price=observation.price,
+                    )
+                )
 
         return (
             {
@@ -314,6 +341,7 @@ class MarketEnv:
             },
             rewards,
             dones,
+            tuple(trace_rows),
         )
 
     def observe(self) -> Observation:

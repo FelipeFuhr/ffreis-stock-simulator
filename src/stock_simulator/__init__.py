@@ -17,6 +17,8 @@ from .types import (
     ObservationModel,
     StepResult,
     StepResultModel,
+    StepTraceRow,
+    StepTraceRowModel,
 )
 
 __all__ = [
@@ -35,6 +37,8 @@ __all__ = [
     "ObservationModel",
     "PortfolioSnapshot",
     "Recorder",
+    "StepTraceRow",
+    "StepTraceRowModel",
     "NullRecorder",
     "InMemoryRecorder",
     "ParquetRecorder",

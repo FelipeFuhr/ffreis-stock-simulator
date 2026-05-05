@@ -43,7 +43,7 @@ def test_step_many_shapes_and_step_parity(
     seq_state = env_seq.reset(seed=999)
     prev_equity = seq_state.equity
 
-    obs_stack, rewards_many, dones_many = env_many.step_many(encoded)
+    obs_stack, rewards_many, dones_many, trace_rows = env_many.step_many(encoded)
 
     rewards_seq: list[float] = []
     dones_seq: list[bool] = []
@@ -65,6 +65,7 @@ def test_step_many_shapes_and_step_parity(
     assert obs_stack["order_summary_vector"].shape == (len(actions), 3)
     assert rewards_many.shape == (len(actions),)
     assert dones_many.shape == (len(actions),)
+    assert len(trace_rows) == 0
 
     np_testing.assert_allclose(
         obs_stack["market_window_handle"],
@@ -80,3 +81,29 @@ def test_step_many_shapes_and_step_parity(
     )
     np_testing.assert_array_equal(dones_many, np_asarray(dones_seq, dtype=np_bool_))
     np_testing.assert_allclose(rewards_many, np_asarray(rewards_seq, dtype=np_float64))
+
+
+def test_step_many_include_trace_returns_one_row_per_action(
+    market_data_factory: Callable[..., MarketData],
+    encode_actions: Callable[[list[Action]], NDArray[np_float64]],
+) -> None:
+    actions = [
+        Action(side="hold"),
+        Action(side="buy", units=2.0, order_type="market"),
+        Action(side="sell", units=1.0, order_type="limit", limit_price=105.0),
+    ]
+    encoded = encode_actions(actions)
+    env = MarketEnv(
+        data=market_data_factory(n=128, slope=0.15, spread=0.3, volume=20_000.0),
+        cfg=GameConfig(seed=2024, use_numba=False),
+    )
+    _ = env.reset(seed=2024)
+
+    _, rewards, dones, trace_rows = env.step_many(encoded, include_trace=True)
+
+    assert len(trace_rows) == len(actions)
+    assert trace_rows[0].index == 0
+    assert trace_rows[1].side_code == 1
+    assert trace_rows[2].order_type_code == 1
+    assert trace_rows[0].reward == float(rewards[0])
+    assert trace_rows[-1].done == bool(dones[-1])

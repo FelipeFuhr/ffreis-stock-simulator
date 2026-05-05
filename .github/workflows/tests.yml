@@ -25,28 +25,13 @@ concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}
   cancel-in-progress: true
 
+permissions:
+  contents: read
+
 jobs:
   unit-tests:
-    runs-on: ubuntu-latest
-    timeout-minutes: 25
-
-    steps:
-      - uses: actions/checkout@v6
-
-      - uses: actions/setup-python@v6
-        with:
-          python-version: "3.13"
-
-      - uses: astral-sh/setup-uv@eac588ad8def6316056a12d4907a9d4d84ff7a3b
-        with:
-          enable-cache: true
-
-      - name: Install deps (dev+api+grpc, frozen)
-        run: |
-          set -euo pipefail
-          uv sync --frozen --extra dev --extra api --extra grpc
-
-      - name: Run unit tests
-        run: |
-          set -euo pipefail
-          uv run --frozen pytest -q tests/unit_tests
+    uses: FelipeFuhr/ffreis-workflows-python/.github/workflows/python-test.yml@1ce012b023b91e4c293846af4cfd93062d36d1be
+    with:
+      python-version: "3.13"
+      uv-extras: "dev api grpc"
+      test-dir: "tests/unit_tests"

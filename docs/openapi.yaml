@@ -278,6 +278,10 @@ components:
             $ref: '#/components/schemas/EncodedActionModel'
           type: array
           title: Actions
+        include_trace:
+          type: boolean
+          title: Include Trace
+          default: false
       additionalProperties: false
       type: object
       required:
@@ -301,14 +305,92 @@ components:
             type: boolean
           type: array
           title: Dones
+        trace:
+          items:
+            $ref: '#/components/schemas/StepTraceRowModel'
+          type: array
+          title: Trace
       additionalProperties: false
       type: object
       required:
       - observations
       - rewards
       - dones
+      - trace
       title: StepManyResponse
       description: Step-many response payload.
+    StepTraceRowModel:
+      properties:
+        index:
+          type: integer
+          title: Index
+        side_code:
+          type: integer
+          title: Side Code
+        requested_units:
+          type: number
+          title: Requested Units
+        order_type_code:
+          type: integer
+          title: Order Type Code
+        has_limit_price:
+          type: boolean
+          title: Has Limit Price
+        limit_price:
+          anyOf:
+          - type: number
+          - type: 'null'
+          title: Limit Price
+        fills:
+          type: integer
+          title: Fills
+        reward:
+          type: number
+          title: Reward
+        done:
+          type: boolean
+          title: Done
+        t:
+          type: integer
+          title: T
+        cash:
+          type: number
+          title: Cash
+        position_units:
+          type: number
+          title: Position Units
+        equity:
+          type: number
+          title: Equity
+        leverage:
+          type: number
+          title: Leverage
+        open_orders:
+          type: integer
+          title: Open Orders
+        market_price:
+          type: number
+          title: Market Price
+      additionalProperties: false
+      type: object
+      required:
+      - index
+      - side_code
+      - requested_units
+      - order_type_code
+      - has_limit_price
+      - fills
+      - reward
+      - done
+      - t
+      - cash
+      - position_units
+      - equity
+      - leverage
+      - open_orders
+      - market_price
+      title: StepTraceRowModel
+      description: Pydantic transport model for :class:`StepTraceRow`.
     ValidationError:
       properties:
         loc:

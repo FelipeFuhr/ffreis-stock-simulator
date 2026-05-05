@@ -21,7 +21,10 @@ uv run --extra grpc stock-simulator-grpc --host 0.0.0.0 --port 50051 --use-numba
 - `Ping` -> returns `"pong"`
 - `Reset` -> resets environment (optional seed)
 - `Observe` -> current observation
-- `StepMany` -> batched encoded actions, returns observations/rewards/dones
+- `StepMany` -> batched encoded actions, returns observations/rewards/dones (+ optional per-step `trace`)
+
+`StepManyRequest` supports `include_trace=true` to return one `StepTraceRow` per processed action
+with action, fill count, reward, done flag, and post-step portfolio snapshot fields.
 
 Proto contract:
 

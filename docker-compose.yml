@@ -2,7 +2,7 @@ services:
   simulator-api:
     build:
       context: .
-      dockerfile: container/Dockerfile
+      dockerfile: container/Containerfile
     image: ${IMAGE_ROOT:-ffreis}-stock-simulator:${IMAGE_TAG:-local}
     container_name: stock-simulator-api
     command:
@@ -28,7 +28,7 @@ services:
   simulator-grpc:
     build:
       context: .
-      dockerfile: container/Dockerfile
+      dockerfile: container/Containerfile
     image: ${IMAGE_ROOT:-ffreis}-stock-simulator:${IMAGE_TAG:-local}
     container_name: stock-simulator-grpc
     command:

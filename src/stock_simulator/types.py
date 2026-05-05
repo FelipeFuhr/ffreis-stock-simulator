@@ -11,6 +11,7 @@ from pydantic import BaseModel, ConfigDict
 Side = Literal["buy", "sell", "hold"]
 OrderType = Literal["market", "limit"]
 type SerializedObservation = dict[str, int | float | bool | list[float] | dict[str, int | float]]
+type SerializedStepTraceRow = dict[str, int | float | bool | None]
 
 
 @dataclass(frozen=True)
@@ -184,6 +185,49 @@ class EnvState:
 
 
 @dataclass(frozen=True)
+class StepTraceRow:
+    """Line-by-line execution trace row for one processed action."""
+
+    index: int
+    side_code: int
+    requested_units: float
+    order_type_code: int
+    has_limit_price: bool
+    limit_price: float | None
+    fills: int
+    reward: float
+    done: bool
+    t: int
+    cash: float
+    position_units: float
+    equity: float
+    leverage: float
+    open_orders: int
+    market_price: float
+
+    def to_serializable(self) -> SerializedStepTraceRow:
+        """Convert trace row into JSON-serializable primitives."""
+        return {
+            "index": self.index,
+            "side_code": self.side_code,
+            "requested_units": self.requested_units,
+            "order_type_code": self.order_type_code,
+            "has_limit_price": self.has_limit_price,
+            "limit_price": self.limit_price,
+            "fills": self.fills,
+            "reward": self.reward,
+            "done": self.done,
+            "t": self.t,
+            "cash": self.cash,
+            "position_units": self.position_units,
+            "equity": self.equity,
+            "leverage": self.leverage,
+            "open_orders": self.open_orders,
+            "market_price": self.market_price,
+        }
+
+
+@dataclass(frozen=True)
 class StepResult:
     """Result container returned by :meth:`stock_simulator.env.MarketEnv.step`."""
 
@@ -278,6 +322,51 @@ class EnvStateModel(BaseModel):
             leverage=value.leverage,
             open_orders=value.open_orders,
             done=value.done,
+        )
+
+
+class StepTraceRowModel(BaseModel):
+    """Pydantic transport model for :class:`StepTraceRow`."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    index: int
+    side_code: int
+    requested_units: float
+    order_type_code: int
+    has_limit_price: bool
+    limit_price: float | None = None
+    fills: int
+    reward: float
+    done: bool
+    t: int
+    cash: float
+    position_units: float
+    equity: float
+    leverage: float
+    open_orders: int
+    market_price: float
+
+    @classmethod
+    def from_dataclass(cls, value: StepTraceRow) -> StepTraceRowModel:
+        """Create model from dataclass value."""
+        return cls(
+            index=value.index,
+            side_code=value.side_code,
+            requested_units=value.requested_units,
+            order_type_code=value.order_type_code,
+            has_limit_price=value.has_limit_price,
+            limit_price=value.limit_price,
+            fills=value.fills,
+            reward=value.reward,
+            done=value.done,
+            t=value.t,
+            cash=value.cash,
+            position_units=value.position_units,
+            equity=value.equity,
+            leverage=value.leverage,
+            open_orders=value.open_orders,
+            market_price=value.market_price,
         )
 
 

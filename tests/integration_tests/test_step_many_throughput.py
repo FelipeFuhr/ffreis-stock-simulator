@@ -54,7 +54,7 @@ def test_step_many_throughput_smoke(
     actions = _build_actions(num_steps=num_steps, seed=123)
 
     start = time_perf_counter()
-    _, _, _ = env.step_many(actions)
+    _, _, _, _ = env.step_many(actions)
     elapsed = time_perf_counter() - start
     steps_per_sec = num_steps / elapsed if elapsed > 0 else float("inf")
 

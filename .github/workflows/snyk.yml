@@ -45,9 +45,9 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 35
     steps:
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6
 
-      - uses: actions/setup-python@v6
+      - uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065 # v5
         with:
           python-version: "3.13"
 
@@ -56,7 +56,7 @@ jobs:
           enable-cache: true
 
       - name: Setup Node.js (for Snyk CLI)
-        uses: actions/setup-node@v6
+        uses: actions/setup-node@48b55a011bda9f5d6aeb4c2d9c7362e8dae4041e # v6
         with:
           node-version: 22
 
@@ -92,9 +92,9 @@ jobs:
           python -m venv /tmp/snyk-venv
           /tmp/snyk-venv/bin/python -m pip install --upgrade pip
           /tmp/snyk-venv/bin/pip install -r /tmp/requirements-snyk.txt
-          pip_cmd="/tmp/snyk-venv/bin/pip"
-          if [ ! -x "${pip_cmd}" ]; then
-            echo "::error::Expected pip command not found at ${pip_cmd}"
+          python_cmd="/tmp/snyk-venv/bin/python"
+          if [ ! -x "${python_cmd}" ]; then
+            echo "::error::Expected python command not found at ${python_cmd}"
             exit 1
           fi
 
@@ -104,7 +104,7 @@ jobs:
           snyk test \
             --file=/tmp/requirements-snyk.txt \
             --package-manager=pip \
-            --command="${pip_cmd}" \
+            --command="${python_cmd}" \
             --skip-unresolved \
             --sarif-file-output=snyk-results/oss.sarif \
             -d 2>&1 | tee snyk-results/oss-debug.log
@@ -116,7 +116,7 @@ jobs:
             snyk test \
               --file=pyproject.toml \
               --package-manager=pip \
-              --command="${pip_cmd}" \
+              --command="${python_cmd}" \
               --skip-unresolved \
               --sarif-file-output=snyk-results/oss.sarif || true
           fi

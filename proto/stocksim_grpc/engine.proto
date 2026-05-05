@@ -64,10 +64,31 @@ message EncodedAction {
 
 message StepManyRequest {
   repeated EncodedAction actions = 1;
+  bool include_trace = 2;
+}
+
+message StepTraceRow {
+  int64 index = 1;
+  int32 side_code = 2;
+  double requested_units = 3;
+  int32 order_type_code = 4;
+  bool has_limit_price = 5;
+  double limit_price = 6;
+  int64 fills = 7;
+  double reward = 8;
+  bool done = 9;
+  int64 t = 10;
+  double cash = 11;
+  double position_units = 12;
+  double equity = 13;
+  double leverage = 14;
+  int64 open_orders = 15;
+  double market_price = 16;
 }
 
 message StepManyResponse {
   repeated Observation observations = 1;
   repeated double rewards = 2;
   repeated bool dones = 3;
+  repeated StepTraceRow trace = 4;
 }

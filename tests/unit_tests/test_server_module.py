@@ -9,7 +9,7 @@ from numpy import float64 as np_float64
 from pytest import MonkeyPatch
 
 from stock_simulator import server as server_mod
-from stock_simulator.types import EnvState, MarketWindowViewHandle, Observation
+from stock_simulator.types import EnvState, MarketWindowViewHandle, Observation, StepTraceRow
 
 
 @dataclass
@@ -36,7 +36,9 @@ class _FakeEnv:
             done=False,
         )
 
-    def step_many(self, _actions: object) -> tuple[dict[str, object], object, object]:
+    def step_many(
+        self, _actions: object, *, include_trace: bool = False
+    ) -> tuple[dict[str, object], object, object, tuple[StepTraceRow, ...]]:
         if self.raise_on_step:
             raise ValueError("invalid order_type code")
         observations: dict[str, object] = {
@@ -46,7 +48,31 @@ class _FakeEnv:
         }
         rewards = np_asarray([101.0], dtype=np_float64)
         dones = np_asarray([False], dtype=np_float64)
-        return observations, cast(object, rewards), cast(object, dones)
+        trace_rows: tuple[StepTraceRow, ...] = (
+            (
+                StepTraceRow(
+                    index=0,
+                    side_code=1,
+                    requested_units=1.0,
+                    order_type_code=0,
+                    has_limit_price=False,
+                    limit_price=None,
+                    fills=1,
+                    reward=101.0,
+                    done=False,
+                    t=4,
+                    cash=999.0,
+                    position_units=1.0,
+                    equity=1101.0,
+                    leverage=0.2,
+                    open_orders=1,
+                    market_price=102.0,
+                ),
+            )
+            if include_trace
+            else ()
+        )
+        return observations, cast(object, rewards), cast(object, dones), trace_rows
 
 
 def test_as_bool_parses_expected_values() -> None:
@@ -102,7 +128,7 @@ def test_create_app_action_routes_with_loaded_engine(monkeypatch: MonkeyPatch) -
 
         empty_step = client.post("/v1/step_many", json={"actions": []})
         assert empty_step.status_code == 200
-        assert empty_step.json() == {"observations": [], "rewards": [], "dones": []}
+        assert empty_step.json() == {"observations": [], "rewards": [], "dones": [], "trace": []}
 
         invalid_limit = client.post(
             "/v1/step_many",
@@ -137,6 +163,24 @@ def test_create_app_action_routes_with_loaded_engine(monkeypatch: MonkeyPatch) -
         payload = valid_step.json()
         assert payload["rewards"] == [101.0]
         assert payload["dones"] == [False]
+        assert payload["trace"] == []
+
+        with_trace = client.post(
+            "/v1/step_many",
+            json={
+                "include_trace": True,
+                "actions": [
+                    {
+                        "side_code": 1,
+                        "units": 1.0,
+                        "order_type_code": 0,
+                        "has_limit_price": False,
+                    }
+                ],
+            },
+        )
+        assert with_trace.status_code == 200
+        assert len(with_trace.json()["trace"]) == 1
 
 
 def test_create_app_step_many_maps_value_error_to_http_400(monkeypatch: MonkeyPatch) -> None:

@@ -5,7 +5,21 @@ from collections.abc import Callable
 from httpx import get as httpx_get
 from httpx import post as httpx_post
 
+from stock_simulator.server import create_app
 from tests.conftest import RunningService
+
+_HTTP_LIVE_VALIDATED_PATHS = {
+    "/healthz",
+    "/readyz",
+    "/v1/reset",
+    "/v1/observe",
+    "/v1/step_many",
+}
+
+
+def test_http_live_validation_matrix_requires_explicit_endpoint_updates() -> None:
+    discovered = set(create_app().openapi().get("paths", {}).keys())
+    assert discovered == _HTTP_LIVE_VALIDATED_PATHS
 
 
 def test_http_service_health_ready_metrics(
@@ -65,6 +79,25 @@ def test_http_engine_endpoints_live(
     assert len(payload["observations"]) == 2
     assert len(payload["rewards"]) == 2
     assert len(payload["dones"]) == 2
+    assert payload["trace"] == []
+
+    step_many_trace = httpx_post(
+        f"{base}/v1/step_many",
+        json={
+            "include_trace": True,
+            "actions": [
+                {
+                    "side_code": 1,
+                    "units": 2.0,
+                    "order_type_code": 0,
+                    "has_limit_price": False,
+                }
+            ],
+        },
+        timeout=5.0,
+    )
+    assert step_many_trace.status_code == 200
+    assert len(step_many_trace.json()["trace"]) == 1
 
 
 def test_http_failure_paths(

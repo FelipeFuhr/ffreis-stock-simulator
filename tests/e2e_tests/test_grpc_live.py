@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from collections.abc import Callable
+from importlib import import_module as importlib_import_module
 from typing import TypedDict, cast
 
 from grpc import RpcError as grpc_RpcError
@@ -14,8 +15,18 @@ from tests.conftest import RunningService
 
 try:
     from stock_simulator.grpc.client import EngineGrpcClient
+
+    _engine_pb2 = importlib_import_module("stocksim_grpc.engine_pb2")
 except ImportError as exc:
     pytest_skip(f"grpc parity dependencies unavailable: {exc}", allow_module_level=True)
+
+_GRPC_LIVE_VALIDATED_METHODS = {"Ping", "Reset", "Observe", "StepMany"}
+
+
+def test_grpc_live_validation_matrix_requires_explicit_method_updates() -> None:
+    service = _engine_pb2.DESCRIPTOR.services_by_name["EngineService"]
+    discovered = {method.name for method in service.methods}
+    assert discovered == _GRPC_LIVE_VALIDATED_METHODS
 
 
 class _MarketWindowHandle(TypedDict):
@@ -53,6 +64,9 @@ def test_grpc_live_service_roundtrip(
         assert len(observations) == 3
         assert rewards.shape == (3,)
         assert dones.shape == (3,)
+
+        _, _, _, trace = client.step_many_with_trace(actions)
+        assert len(trace) == 3
     finally:
         client.close()
 
