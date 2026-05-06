@@ -16,6 +16,7 @@ type ObservationDict = dict[
     str,
     bool | list[float] | dict[str, int | float],
 ]
+type StepTraceRowDict = dict[str, int | float | bool | None]
 
 
 class ProtoMessage(Protocol):
@@ -67,7 +68,7 @@ class _EncodedActionFactory(Protocol):
 
 
 class _StepManyRequestFactory(Protocol):
-    def __call__(self, *, actions: list[ProtoMessage]) -> ProtoMessage: ...
+    def __call__(self, *, actions: list[ProtoMessage], include_trace: bool) -> ProtoMessage: ...
 
 
 class _Pb2Protocol(Protocol):
@@ -118,6 +119,26 @@ class _StepManyResponseLike(Protocol):
     observations: list[_ObservationLike]
     rewards: list[float]
     dones: list[bool]
+    trace: list[object]
+
+
+class _StepTraceRowLike(Protocol):
+    index: int
+    side_code: int
+    requested_units: float
+    order_type_code: int
+    has_limit_price: bool
+    limit_price: float
+    fills: int
+    reward: float
+    done: bool
+    t: int
+    cash: float
+    position_units: float
+    equity: float
+    leverage: float
+    open_orders: int
+    market_price: float
 
 
 class _EngineStubProtocol(Protocol):
@@ -200,6 +221,20 @@ class EngineGrpcClient:
     def step_many(
         self, actions: NDArray[np_float64]
     ) -> tuple[list[ObservationDict], NDArray[np_float64], NDArray[np_bool_]]:
+        observations, rewards, dones, _ = self._step_many_internal(actions, include_trace=False)
+        return observations, rewards, dones
+
+    def step_many_with_trace(
+        self, actions: NDArray[np_float64]
+    ) -> tuple[list[ObservationDict], NDArray[np_float64], NDArray[np_bool_], list[StepTraceRowDict]]:
+        return self._step_many_internal(actions, include_trace=True)
+
+    def _step_many_internal(
+        self,
+        actions: NDArray[np_float64],
+        *,
+        include_trace: bool,
+    ) -> tuple[list[ObservationDict], NDArray[np_float64], NDArray[np_bool_], list[StepTraceRowDict]]:
         pb2 = _require_engine_pb2()
         encoded_actions: list[ProtoMessage] = []
         for row in actions:
@@ -212,7 +247,7 @@ class EngineGrpcClient:
                     limit_price=0.0 if np_isnan(row[3]) else float(row[3]),
                 )
             )
-        response = self._stub.StepMany(pb2.StepManyRequest(actions=encoded_actions))
+        response = self._stub.StepMany(pb2.StepManyRequest(actions=encoded_actions, include_trace=include_trace))
         obs: list[ObservationDict] = []
         for row in response.observations:
             obs.append(
@@ -228,8 +263,32 @@ class EngineGrpcClient:
                     "done": bool(row.done),
                 }
             )
+        trace: list[StepTraceRowDict] = []
+        for row in response.trace:
+            trace_row = cast(_StepTraceRowLike, row)
+            trace.append(
+                {
+                    "index": int(trace_row.index),
+                    "side_code": int(trace_row.side_code),
+                    "requested_units": float(trace_row.requested_units),
+                    "order_type_code": int(trace_row.order_type_code),
+                    "has_limit_price": bool(trace_row.has_limit_price),
+                    "limit_price": (float(trace_row.limit_price) if trace_row.has_limit_price else None),
+                    "fills": int(trace_row.fills),
+                    "reward": float(trace_row.reward),
+                    "done": bool(trace_row.done),
+                    "t": int(trace_row.t),
+                    "cash": float(trace_row.cash),
+                    "position_units": float(trace_row.position_units),
+                    "equity": float(trace_row.equity),
+                    "leverage": float(trace_row.leverage),
+                    "open_orders": int(trace_row.open_orders),
+                    "market_price": float(trace_row.market_price),
+                }
+            )
         return (
             obs,
             np_asarray(response.rewards, dtype=np_float64),
             np_asarray(response.dones, dtype=np_bool_),
+            trace,
         )

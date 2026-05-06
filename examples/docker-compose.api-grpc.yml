@@ -2,7 +2,7 @@ services:
   simulator-api:
     build:
       context: ..
-      dockerfile: container/Dockerfile
+      dockerfile: container/Containerfile
     image: ${IMAGE_ROOT:-ffreis}-stock-simulator:${IMAGE_TAG:-api-grpc-smoke}
     pull_policy: never
     command:

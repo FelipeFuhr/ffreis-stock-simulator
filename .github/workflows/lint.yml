@@ -29,34 +29,12 @@ concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}
   cancel-in-progress: true
 
+permissions:
+  contents: read
+
 jobs:
   lint:
-    runs-on: ubuntu-latest
-    timeout-minutes: 25
-
-    steps:
-      - name: Harden the runner (Audit all outbound calls)
-        uses: step-security/harden-runner@a5ad31d6a139d249332a2605b85202e8c0b78450 # v2.19.1
-        with:
-          egress-policy: audit
-
-      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
-
-      - uses: actions/setup-python@a309ff8b426b58ec0e2a45f0f869d46889d02405 # v6.2.0
-        with:
-          python-version: "3.13"
-
-      - uses: astral-sh/setup-uv@08807647e7069bb48b6ef5acd8ec9567f424441b
-        with:
-          enable-cache: true
-
-      - name: Install deps (frozen)
-        run: |
-          set -euo pipefail
-          uv sync --frozen --extra dev --extra api --extra grpc
-
-      - name: Ruff
-        run: uv run --frozen ruff check src tests benchmarks examples
-
-      - name: Mypy
-        run: uv run --frozen mypy --config-file pyproject.toml src tests benchmarks
+    uses: FelipeFuhr/ffreis-workflows-python/.github/workflows/python-lint.yml@1ce012b023b91e4c293846af4cfd93062d36d1be
+    with:
+      python-version: "3.13"
+      uv-extras: "dev api grpc"

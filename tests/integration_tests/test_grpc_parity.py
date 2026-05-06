@@ -22,7 +22,13 @@ from stock_simulator.config import GameConfig
 from stock_simulator.data import MarketData
 from stock_simulator.env import MarketEnv
 from stock_simulator.server import create_app
-from stock_simulator.types import Action, EnvStateModel, MarketWindowViewHandleModel, ObservationModel
+from stock_simulator.types import (
+    Action,
+    EnvStateModel,
+    MarketWindowViewHandleModel,
+    ObservationModel,
+    StepTraceRowModel,
+)
 
 try:
     from stock_simulator.grpc.server import EngineGrpcService
@@ -62,6 +68,7 @@ class _EncodedActionLike(Protocol):
 
 class _StepManyRequestLike(Protocol):
     actions: list[_EncodedActionLike]
+    include_trace: bool
 
 
 class _ResetRequestLike(_MessageTypeLike, Protocol):
@@ -88,7 +95,7 @@ class _FactoryEncodedAction(Protocol):
 
 
 class _FactoryStepManyRequest(Protocol):
-    def __call__(self, *, actions: list[_EncodedActionLike]) -> _StepManyRequestLike: ...
+    def __call__(self, *, actions: list[_EncodedActionLike], include_trace: bool = False) -> _StepManyRequestLike: ...
 
 
 class _FactoryResetRequest(Protocol):
@@ -149,6 +156,45 @@ class _StepManyReplyLike(Protocol):
     observations: list[_ReplyObservationLike]
     rewards: list[float]
     dones: list[bool]
+    trace: list[_ReplyTraceRowLike]
+
+
+class _ReplyTraceRowLike(Protocol):
+    index: int
+    side_code: int
+    requested_units: float
+    order_type_code: int
+    has_limit_price: bool
+    limit_price: float
+    fills: int
+    reward: float
+    done: bool
+    t: int
+    cash: float
+    position_units: float
+    equity: float
+    leverage: float
+    open_orders: int
+    market_price: float
+
+
+class _DirectTraceRowLike(Protocol):
+    index: int
+    side_code: int
+    requested_units: float
+    order_type_code: int
+    has_limit_price: bool
+    limit_price: float | None
+    fills: int
+    reward: float
+    done: bool
+    t: int
+    cash: float
+    position_units: float
+    equity: float
+    leverage: float
+    open_orders: int
+    market_price: float
 
 
 class _EngineGrpcServiceLike(Protocol):
@@ -172,7 +218,7 @@ _UNMAPPED_GRPC_METHODS: set[str] = set()
 _HYPOTHESIS_MAX_EXAMPLES = int(os_getenv("HYPOTHESIS_MAX_EXAMPLES", "25"))
 
 
-def _build_step_many_request(actions: NDArray[np_float64]) -> _StepManyRequestLike:
+def _build_step_many_request(actions: NDArray[np_float64], *, include_trace: bool = False) -> _StepManyRequestLike:
     encoded: list[_EncodedActionLike] = []
     for row in actions:
         encoded.append(
@@ -184,7 +230,7 @@ def _build_step_many_request(actions: NDArray[np_float64]) -> _StepManyRequestLi
                 limit_price=0.0 if np_isnan(row[3]) else float(row[3]),
             )
         )
-    return engine_pb2.StepManyRequest(actions=encoded)
+    return engine_pb2.StepManyRequest(actions=encoded, include_trace=include_trace)
 
 
 def _grpc_reply_to_arrays(
@@ -195,6 +241,7 @@ def _grpc_reply_to_arrays(
     NDArray[np_float64],
     NDArray[np_float64],
     NDArray[np_bool_],
+    NDArray[np_float64],
 ]:
     market = np_asarray(
         [
@@ -212,7 +259,58 @@ def _grpc_reply_to_arrays(
     orders = np_asarray([o.order_summary_vector for o in reply.observations], dtype=np_float64)
     rewards = np_asarray(reply.rewards, dtype=np_float64)
     dones = np_asarray(reply.dones, dtype=np_bool_)
-    return market, portfolio, orders, rewards, dones
+    trace = np_asarray(
+        [
+            [
+                float(row.index),
+                float(row.side_code),
+                float(row.requested_units),
+                float(row.order_type_code),
+                1.0 if bool(row.has_limit_price) else 0.0,
+                float(row.limit_price) if bool(row.has_limit_price) else np_nan,
+                float(row.fills),
+                float(row.reward),
+                1.0 if bool(row.done) else 0.0,
+                float(row.t),
+                float(row.cash),
+                float(row.position_units),
+                float(row.equity),
+                float(row.leverage),
+                float(row.open_orders),
+                float(row.market_price),
+            ]
+            for row in reply.trace
+        ],
+        dtype=np_float64,
+    )
+    return market, portfolio, orders, rewards, dones, trace
+
+
+def _trace_rows_to_array(rows: tuple[_DirectTraceRowLike, ...]) -> NDArray[np_float64]:
+    return np_asarray(
+        [
+            [
+                float(row.index),
+                float(row.side_code),
+                float(row.requested_units),
+                float(row.order_type_code),
+                1.0 if bool(row.has_limit_price) else 0.0,
+                float(row.limit_price) if row.has_limit_price and row.limit_price is not None else np_nan,
+                float(row.fills),
+                float(row.reward),
+                1.0 if bool(row.done) else 0.0,
+                float(row.t),
+                float(row.cash),
+                float(row.position_units),
+                float(row.equity),
+                float(row.leverage),
+                float(row.open_orders),
+                float(row.market_price),
+            ]
+            for row in rows
+        ],
+        dtype=np_float64,
+    )
 
 
 def _contract_fields(message: _MessageTypeLike) -> set[str]:
@@ -261,9 +359,12 @@ def test_contract_parity_for_env_state_and_observation_models() -> None:
 
 def test_contract_parity_for_step_many_request_payload() -> None:
     request_fields = _contract_fields(engine_pb2.StepManyRequest)
+    response_fields = _contract_fields(engine_pb2.StepManyResponse)
     action_fields = _contract_fields(engine_pb2.EncodedAction)
+    trace_fields = _contract_fields(engine_pb2.StepTraceRow)
 
-    assert request_fields == {"actions"}
+    assert request_fields == {"actions", "include_trace"}
+    assert response_fields == {"observations", "rewards", "dones", "trace"}
     assert action_fields == {
         "side_code",
         "units",
@@ -271,6 +372,7 @@ def test_contract_parity_for_step_many_request_payload() -> None:
         "has_limit_price",
         "limit_price",
     }
+    assert trace_fields == set(StepTraceRowModel.model_fields.keys())
 
 
 def test_grpc_service_matches_env_behavior(
@@ -327,16 +429,47 @@ def test_grpc_service_matches_env_behavior(
         ]
     )
 
-    direct_obs_stack, direct_rewards, direct_dones = env_direct.step_many(actions)
+    direct_obs_stack, direct_rewards, direct_dones, direct_trace = env_direct.step_many(actions)
     grpc_reply = grpc_service.StepMany(_build_step_many_request(actions), None)
 
-    grpc_market, grpc_portfolio, grpc_orders, grpc_rewards, grpc_dones = _grpc_reply_to_arrays(grpc_reply)
+    grpc_market, grpc_portfolio, grpc_orders, grpc_rewards, grpc_dones, grpc_trace = _grpc_reply_to_arrays(grpc_reply)
 
     np_testing.assert_allclose(direct_obs_stack["market_window_handle"], grpc_market)
     np_testing.assert_allclose(direct_obs_stack["portfolio_vector"], grpc_portfolio)
     np_testing.assert_allclose(direct_obs_stack["order_summary_vector"], grpc_orders)
     np_testing.assert_allclose(direct_rewards, grpc_rewards)
     np_testing.assert_array_equal(direct_dones, grpc_dones)
+    assert len(direct_trace) == 0
+    assert grpc_trace.shape == (0,)
+
+    _ = env_direct.reset(seed=4242)
+    _ = grpc_service.Reset(
+        engine_pb2.ResetRequest(has_seed=True, seed=4242),
+        None,
+    )
+    direct_obs_stack_trace, direct_rewards_trace, direct_dones_trace, direct_trace_rows = env_direct.step_many(
+        actions,
+        include_trace=True,
+    )
+    grpc_reply_trace = grpc_service.StepMany(
+        _build_step_many_request(actions, include_trace=True),
+        None,
+    )
+    (
+        grpc_market_trace,
+        grpc_portfolio_trace,
+        grpc_orders_trace,
+        grpc_rewards_trace,
+        grpc_dones_trace,
+        grpc_trace_rows,
+    ) = _grpc_reply_to_arrays(grpc_reply_trace)
+
+    np_testing.assert_allclose(direct_obs_stack_trace["market_window_handle"], grpc_market_trace)
+    np_testing.assert_allclose(direct_obs_stack_trace["portfolio_vector"], grpc_portfolio_trace)
+    np_testing.assert_allclose(direct_obs_stack_trace["order_summary_vector"], grpc_orders_trace)
+    np_testing.assert_allclose(direct_rewards_trace, grpc_rewards_trace)
+    np_testing.assert_array_equal(direct_dones_trace, grpc_dones_trace)
+    np_testing.assert_allclose(_trace_rows_to_array(direct_trace_rows), grpc_trace_rows, rtol=1e-7, atol=1e-9)
 
 
 @pytest_mark.property
@@ -384,15 +517,16 @@ def test_property_based_behavior_parity(
     grpc_service.Reset(engine_pb2.ResetRequest(has_seed=True, seed=3030), None)
 
     encoded = encode_actions(actions)
-    direct_obs_stack, direct_rewards, direct_dones = env_direct.step_many(encoded)
-    grpc_reply = grpc_service.StepMany(_build_step_many_request(encoded), None)
-    grpc_market, grpc_portfolio, grpc_orders, grpc_rewards, grpc_dones = _grpc_reply_to_arrays(grpc_reply)
+    direct_obs_stack, direct_rewards, direct_dones, direct_trace = env_direct.step_many(encoded, include_trace=True)
+    grpc_reply = grpc_service.StepMany(_build_step_many_request(encoded, include_trace=True), None)
+    grpc_market, grpc_portfolio, grpc_orders, grpc_rewards, grpc_dones, grpc_trace = _grpc_reply_to_arrays(grpc_reply)
 
     np_testing.assert_allclose(direct_obs_stack["market_window_handle"], grpc_market, rtol=1e-7, atol=1e-9)
     np_testing.assert_allclose(direct_obs_stack["portfolio_vector"], grpc_portfolio, rtol=1e-7, atol=1e-9)
     np_testing.assert_allclose(direct_obs_stack["order_summary_vector"], grpc_orders, rtol=1e-7, atol=1e-9)
     np_testing.assert_allclose(direct_rewards, grpc_rewards, rtol=1e-7, atol=1e-9)
     np_testing.assert_array_equal(direct_dones, grpc_dones)
+    np_testing.assert_allclose(_trace_rows_to_array(direct_trace), grpc_trace, rtol=1e-7, atol=1e-9)
 
 
 def test_error_parity_for_invalid_order_type_code(

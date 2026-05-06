@@ -61,6 +61,27 @@ class _StepManyReply:
     observations: list[_Observation]
     rewards: list[float]
     dones: list[bool]
+    trace: list[object]
+
+
+@dataclass
+class _StepTraceRow:
+    index: int
+    side_code: int
+    requested_units: float
+    order_type_code: int
+    has_limit_price: bool
+    limit_price: float
+    fills: int
+    reward: float
+    done: bool
+    t: int
+    cash: float
+    position_units: float
+    equity: float
+    leverage: float
+    open_orders: int
+    market_price: float
 
 
 @dataclass
@@ -81,6 +102,7 @@ class _ResetRequest:
 @dataclass
 class _StepManyRequest:
     actions: list[_EncodedAction]
+    include_trace: bool
 
 
 class _Pb2:
@@ -131,7 +153,28 @@ class _FakeStub:
         )
 
     def StepMany(self, request: _StepManyRequest) -> _StepManyReply:  # noqa: N802  # NOSONAR - gRPC method name
-        _ = request
+        trace_rows: list[object] = []
+        if request.include_trace:
+            trace_rows.append(
+                _StepTraceRow(
+                    index=0,
+                    side_code=1,
+                    requested_units=1.0,
+                    order_type_code=0,
+                    has_limit_price=False,
+                    limit_price=0.0,
+                    fills=1,
+                    reward=1.25,
+                    done=False,
+                    t=3,
+                    cash=99.0,
+                    position_units=2.0,
+                    equity=303.0,
+                    leverage=0.3,
+                    open_orders=2,
+                    market_price=102.0,
+                )
+            )
         return _StepManyReply(
             observations=[
                 _Observation(
@@ -143,6 +186,7 @@ class _FakeStub:
             ],
             rewards=[1.25],
             dones=[False],
+            trace=trace_rows,
         )
 
 
@@ -214,6 +258,11 @@ def test_client_methods_roundtrip_with_fake_stub(monkeypatch: MonkeyPatch) -> No
     assert market["current_price"] == pytest_approx(102.0)
     np_testing.assert_allclose(rewards, np_asarray([1.25], dtype=np_float64))
     np_testing.assert_array_equal(dones, np_asarray([False], dtype=np_bool_))
+
+    _, _, _, trace_rows = client.step_many_with_trace(actions)
+    assert len(trace_rows) == 1
+    assert trace_rows[0]["fills"] == 1
+    assert trace_rows[0]["requested_units"] == pytest_approx(1.0)
 
     client.close()
     assert channel.closed is True

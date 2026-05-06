@@ -21,11 +21,49 @@ except ImportError as exc:
     pytest_skip(f"grpc parity dependencies unavailable: {exc}", allow_module_level=True)
 
 
+type TraceRowDict = dict[str, int | float | bool | None]
+
+
+def _trace_rows_to_array(rows: list[TraceRowDict]) -> NDArray[np_float64]:
+    return np_asarray(
+        [
+            [
+                float(cast(int, row["index"])),
+                float(cast(int, row["side_code"])),
+                float(cast(float, row["requested_units"])),
+                float(cast(int, row["order_type_code"])),
+                1.0 if bool(cast(bool, row["has_limit_price"])) else 0.0,
+                float(cast(float, row["limit_price"])) if row["limit_price"] is not None else np_nan,
+                float(cast(int, row["fills"])),
+                float(cast(float, row["reward"])),
+                1.0 if bool(cast(bool, row["done"])) else 0.0,
+                float(cast(int, row["t"])),
+                float(cast(float, row["cash"])),
+                float(cast(float, row["position_units"])),
+                float(cast(float, row["equity"])),
+                float(cast(float, row["leverage"])),
+                float(cast(int, row["open_orders"])),
+                float(cast(float, row["market_price"])),
+            ]
+            for row in rows
+        ],
+        dtype=np_float64,
+    )
+
+
 def _http_step_many(
     *,
     base_url: str,
     actions: NDArray[np_float64],
-) -> tuple[NDArray[np_float64], NDArray[np_float64], NDArray[np_float64], NDArray[np_float64], NDArray[np_bool_]]:
+    include_trace: bool = False,
+) -> tuple[
+    NDArray[np_float64],
+    NDArray[np_float64],
+    NDArray[np_float64],
+    NDArray[np_float64],
+    NDArray[np_bool_],
+    list[TraceRowDict],
+]:
     encoded = []
     for row in actions:
         encoded.append(
@@ -37,7 +75,11 @@ def _http_step_many(
                 "limit_price": None if np_isnan(row[3]) else float(row[3]),
             }
         )
-    reply = httpx_post(f"{base_url}/v1/step_many", json={"actions": encoded}, timeout=10.0)
+    reply = httpx_post(
+        f"{base_url}/v1/step_many",
+        json={"actions": encoded, "include_trace": include_trace},
+        timeout=10.0,
+    )
     reply.raise_for_status()
     payload = reply.json()
 
@@ -57,7 +99,8 @@ def _http_step_many(
     orders = np_asarray([obs["order_summary_vector"] for obs in payload["observations"]], dtype=np_float64)
     rewards = np_asarray(payload["rewards"], dtype=np_float64)
     dones = np_asarray(payload["dones"], dtype=np_bool_)
-    return market, portfolio, orders, rewards, dones
+    trace_rows = cast(list[TraceRowDict], payload["trace"])
+    return market, portfolio, orders, rewards, dones, trace_rows
 
 
 def test_live_http_grpc_deterministic_parity(
@@ -86,7 +129,7 @@ def test_live_http_grpc_deterministic_parity(
     try:
         _ = grpc_client.reset(seed=seed)
 
-        http_market, http_portfolio, http_orders, http_rewards, http_dones = _http_step_many(
+        http_market, http_portfolio, http_orders, http_rewards, http_dones, _ = _http_step_many(
             base_url=http_service.http_base_url,
             actions=actions,
         )
@@ -120,3 +163,70 @@ def test_live_http_grpc_deterministic_parity(
     np_testing.assert_allclose(http_orders, grpc_orders, rtol=1e-7, atol=1e-9)
     np_testing.assert_allclose(http_rewards, grpc_rewards, rtol=1e-7, atol=1e-9)
     np_testing.assert_array_equal(http_dones, grpc_dones)
+
+
+def test_live_http_grpc_trace_parity(
+    launch_http_server: Callable[..., RunningService],
+    launch_grpc_server: Callable[..., RunningService],
+) -> None:
+    http_service = launch_http_server(engine_enabled=True, with_market_data=True)
+    grpc_service = launch_grpc_server(seed=8181, with_market_data=True)
+
+    seed = 8181
+    actions = np_asarray(
+        [
+            [1.0, 1.5, 0.0, np_nan],
+            [1.0, 2.0, 1.0, 99.5],
+            [-1.0, 0.7, 0.0, np_nan],
+            [-1.0, 1.2, 1.0, 105.0],
+        ],
+        dtype=np_float64,
+    )
+
+    reset_http = httpx_post(f"{http_service.http_base_url}/v1/reset", json={"seed": seed}, timeout=5.0)
+    reset_http.raise_for_status()
+
+    grpc_client = EngineGrpcClient(target=grpc_service.grpc_target)
+    try:
+        _ = grpc_client.reset(seed=seed)
+        http_market, http_portfolio, http_orders, http_rewards, http_dones, http_trace = _http_step_many(
+            base_url=http_service.http_base_url,
+            actions=actions,
+            include_trace=True,
+        )
+        grpc_observations, grpc_rewards, grpc_dones, grpc_trace = grpc_client.step_many_with_trace(actions)
+    finally:
+        grpc_client.close()
+
+    grpc_market = np_asarray(
+        [
+            [
+                float(cast(dict[str, float | int], obs["market_window_handle"])["start"]),
+                float(cast(dict[str, float | int], obs["market_window_handle"])["end"]),
+                float(cast(dict[str, float | int], obs["market_window_handle"])["t"]),
+                float(cast(dict[str, float | int], obs["market_window_handle"])["current_price"]),
+            ]
+            for obs in grpc_observations
+        ],
+        dtype=np_float64,
+    )
+    grpc_portfolio = np_asarray(
+        [cast(list[float], obs["portfolio_vector"]) for obs in grpc_observations],
+        dtype=np_float64,
+    )
+    grpc_orders = np_asarray(
+        [cast(list[float], obs["order_summary_vector"]) for obs in grpc_observations],
+        dtype=np_float64,
+    )
+
+    np_testing.assert_allclose(http_market, grpc_market, rtol=1e-7, atol=1e-9)
+    np_testing.assert_allclose(http_portfolio, grpc_portfolio, rtol=1e-7, atol=1e-9)
+    np_testing.assert_allclose(http_orders, grpc_orders, rtol=1e-7, atol=1e-9)
+    np_testing.assert_allclose(http_rewards, grpc_rewards, rtol=1e-7, atol=1e-9)
+    np_testing.assert_array_equal(http_dones, grpc_dones)
+    np_testing.assert_allclose(
+        _trace_rows_to_array(http_trace),
+        _trace_rows_to_array(grpc_trace),
+        rtol=1e-7,
+        atol=1e-9,
+    )

@@ -139,6 +139,30 @@ class _StepManyResponseFactory(Protocol):
         observations: list[ProtoMessage] = ...,
         rewards: list[float] = ...,
         dones: list[bool] = ...,
+        trace: list[ProtoMessage] = ...,
+    ) -> ProtoMessage: ...
+
+
+class _StepTraceRowFactory(Protocol):
+    def __call__(
+        self,
+        *,
+        index: int,
+        side_code: int,
+        requested_units: float,
+        order_type_code: int,
+        has_limit_price: bool,
+        limit_price: float,
+        fills: int,
+        reward: float,
+        done: bool,
+        t: int,
+        cash: float,
+        position_units: float,
+        equity: float,
+        leverage: float,
+        open_orders: int,
+        market_price: float,
     ) -> ProtoMessage: ...
 
 
@@ -146,6 +170,7 @@ class _Pb2Protocol(Protocol):
     MarketWindowViewHandle: _MarketWindowFactory
     Observation: _ObservationFactory
     EnvState: _EnvStateFactory
+    StepTraceRow: _StepTraceRowFactory
     PingResponse: _PingResponseFactory
     ResetResponse: _ResetResponseFactory
     ObserveResponse: _ObserveResponseFactory
@@ -167,6 +192,7 @@ class _RequestWithSeed(Protocol):
 
 class _RequestWithActions(Protocol):
     actions: list[_ActionLike]
+    include_trace: bool
 
 
 class _GrpcStubsProtocol(Protocol):
@@ -291,7 +317,10 @@ class EngineGrpcService:
             )
         actions_matrix: NDArray[np_float64] = np_asarray(rows, dtype=np_float64)
         try:
-            observations, rewards, dones = self._env.step_many(actions_matrix)
+            observations, rewards, dones, trace = self._env.step_many(
+                actions_matrix,
+                include_trace=bool(request.include_trace),
+            )
         except ValueError as exc:
             if context is None:
                 raise
@@ -316,10 +345,33 @@ class EngineGrpcService:
                     done=bool(dones[i]),
                 )
             )
+        trace_rows: list[ProtoMessage] = []
+        for row in trace:
+            trace_rows.append(
+                pb2.StepTraceRow(
+                    index=int(row.index),
+                    side_code=int(row.side_code),
+                    requested_units=float(row.requested_units),
+                    order_type_code=int(row.order_type_code),
+                    has_limit_price=bool(row.has_limit_price),
+                    limit_price=0.0 if row.limit_price is None else float(row.limit_price),
+                    fills=int(row.fills),
+                    reward=float(row.reward),
+                    done=bool(row.done),
+                    t=int(row.t),
+                    cash=float(row.cash),
+                    position_units=float(row.position_units),
+                    equity=float(row.equity),
+                    leverage=float(row.leverage),
+                    open_orders=int(row.open_orders),
+                    market_price=float(row.market_price),
+                )
+            )
         return pb2.StepManyResponse(
             observations=observation_rows,
             rewards=rewards.tolist(),
             dones=dones.tolist(),
+            trace=trace_rows,
         )
 
 

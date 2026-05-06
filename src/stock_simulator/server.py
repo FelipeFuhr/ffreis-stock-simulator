@@ -14,7 +14,7 @@ from pydantic import BaseModel, ConfigDict
 from .config import GameConfig
 from .data import MarketData
 from .env import MarketEnv
-from .types import EnvStateModel, MarketWindowViewHandleModel, ObservationModel
+from .types import EnvStateModel, MarketWindowViewHandleModel, ObservationModel, StepTraceRowModel
 
 if TYPE_CHECKING:
     from fastapi import FastAPI
@@ -128,6 +128,7 @@ class StepManyRequest(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
     actions: list[EncodedActionModel]
+    include_trace: bool = False
 
 
 class StepManyResponse(BaseModel):
@@ -138,6 +139,7 @@ class StepManyResponse(BaseModel):
     observations: list[ObservationModel]
     rewards: list[float]
     dones: list[bool]
+    trace: list[StepTraceRowModel]
 
 
 class RuntimeState:
@@ -244,7 +246,7 @@ def create_app() -> FastAPI:
     async def step_many(payload: StepManyRequest) -> StepManyResponse:
         env = require_env()
         if not payload.actions:
-            return StepManyResponse(observations=[], rewards=[], dones=[])
+            return StepManyResponse(observations=[], rewards=[], dones=[], trace=[])
 
         rows: list[list[float]] = []
         for action in payload.actions:
@@ -266,7 +268,10 @@ def create_app() -> FastAPI:
             )
         actions_matrix: NDArray[np_float64] = np_asarray(rows, dtype=np_float64)
         try:
-            observations, rewards, dones = env.step_many(actions_matrix)
+            observations, rewards, dones, trace = env.step_many(
+                actions_matrix,
+                include_trace=payload.include_trace,
+            )
         except ValueError as exc:
             raise http_exception_cls(status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc)) from exc
 
@@ -290,6 +295,7 @@ def create_app() -> FastAPI:
             observations=observation_rows,
             rewards=rewards.tolist(),
             dones=dones.tolist(),
+            trace=[StepTraceRowModel.from_dataclass(row) for row in trace],
         )
 
     return app

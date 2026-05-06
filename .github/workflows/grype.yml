@@ -59,7 +59,7 @@ jobs:
       - name: Build images (local)
         run: |
           set -euo pipefail
-          podman build -f container/Dockerfile -t "${IMAGE_NAME}" .
+          podman build -f container/Containerfile -t "${IMAGE_NAME}" .
 
       - name: Install Grype
         run: |
