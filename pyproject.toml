@@ -108,6 +108,10 @@ ignore_missing_imports = true
 module = ["stocksim_grpc", "stocksim_grpc.*"]
 ignore_errors = true
 
+[[tool.mypy.overrides]]
+module = ["tests.integration_tests.*", "tests.e2e_tests.*"]
+ignore_errors = true
+
 [tool.coverage.run]
 branch = true
 source = ["src"]
