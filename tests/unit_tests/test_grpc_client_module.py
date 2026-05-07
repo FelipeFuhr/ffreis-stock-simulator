@@ -6,6 +6,7 @@ from typing import cast
 from numpy import asarray as np_asarray
 from numpy import bool_ as np_bool_
 from numpy import float64 as np_float64
+from numpy import nan as np_nan
 from numpy import testing as np_testing
 from pytest import MonkeyPatch
 from pytest import approx as pytest_approx
@@ -246,7 +247,7 @@ def test_client_methods_roundtrip_with_fake_stub(monkeypatch: MonkeyPatch) -> No
 
     actions = np_asarray(
         [
-            [1.0, 1.0, 0.0, 0.0],
+            [1.0, 1.0, 0.0, np_nan],
             [-1.0, 2.0, 1.0, 99.0],
         ],
         dtype=np_float64,

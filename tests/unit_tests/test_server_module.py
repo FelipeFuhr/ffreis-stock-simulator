@@ -5,6 +5,7 @@ from typing import cast
 
 from fastapi.testclient import TestClient
 from numpy import asarray as np_asarray
+from numpy import bool_ as np_bool_
 from numpy import float64 as np_float64
 from pytest import MonkeyPatch
 
@@ -47,7 +48,7 @@ class _FakeEnv:
             "order_summary_vector": np_asarray([[1.0, 1.0, 0.0]], dtype=np_float64),
         }
         rewards = np_asarray([101.0], dtype=np_float64)
-        dones = np_asarray([False], dtype=np_float64)
+        dones = np_asarray([False], dtype=np_bool_)
         trace_rows: tuple[StepTraceRow, ...] = (
             (
                 StepTraceRow(
