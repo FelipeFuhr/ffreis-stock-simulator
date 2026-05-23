@@ -40,4 +40,4 @@ concurrency:
 
 jobs:
   semgrep:
-    uses: FelipeFuhr/ffreis-workflows-python/.github/workflows/python-semgrep.yml@v1.0.5
+    uses: FelipeFuhr/ffreis-workflows-python/.github/workflows/python-semgrep.yml@v1.0.1
