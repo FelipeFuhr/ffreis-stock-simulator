@@ -98,11 +98,11 @@ repos:
         language: system
         pass_filenames: false
         stages: [pre-push]
-  - repo: https://github.com/jumanjihouse/pre-commit-hooks
-    rev: 3.0.0
+  - repo: https://github.com/shellcheck-py/shellcheck-py
+    rev: v0.10.0.1
     hooks:
       - id: shellcheck
   - repo: https://github.com/pylint-dev/pylint
-    rev: v2.17.2
+    rev: v3.3.4
     hooks:
       - id: pylint

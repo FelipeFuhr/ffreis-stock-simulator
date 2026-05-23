@@ -58,6 +58,6 @@ def test_step_many_throughput_smoke(
     elapsed = time_perf_counter() - start
     steps_per_sec = num_steps / elapsed if elapsed > 0 else float("inf")
 
-    assert (
-        steps_per_sec >= min_steps_per_sec
-    ), f"step_many throughput regression: {steps_per_sec:.0f} < {min_steps_per_sec:.0f} steps/sec"
+    assert steps_per_sec >= min_steps_per_sec, (
+        f"step_many throughput regression: {steps_per_sec:.0f} < {min_steps_per_sec:.0f} steps/sec"
+    )
