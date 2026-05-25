@@ -32,9 +32,6 @@ on:
       - "Makefile"
       - ".github/workflows/commit-checks.yml"
 
-permissions:
-  contents: read
-
 concurrency:
   group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
   cancel-in-progress: true
@@ -42,6 +39,8 @@ concurrency:
 jobs:
   commit-checks:
     if: ${{ !github.event.pull_request.draft }}
+    permissions:
+      contents: read
     uses: FelipeFuhr/ffreis-workflows-python/.github/workflows/python-test.yml@v1.0.1
     with:
       python-version: "3.13"

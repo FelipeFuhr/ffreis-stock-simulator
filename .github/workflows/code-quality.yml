@@ -37,6 +37,8 @@ jobs:
   sonarqube:
     runs-on: ubuntu-latest
     timeout-minutes: 35
+    permissions:
+      contents: read
 
     steps:
       - name: Harden the runner (Audit all outbound calls)
