@@ -31,13 +31,12 @@ on:
       - "Makefile"
       - ".github/workflows/semgrep.yml"
 
-permissions:
-  contents: read
-
 concurrency:
   group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
   cancel-in-progress: true
 
 jobs:
   semgrep:
+    permissions:
+      contents: read
     uses: FelipeFuhr/ffreis-workflows-python/.github/workflows/python-semgrep.yml@v1.0.1

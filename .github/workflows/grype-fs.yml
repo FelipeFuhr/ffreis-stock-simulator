@@ -11,6 +11,10 @@ concurrency:
 
 jobs:
   grype-fs:
+    permissions:
+      contents: read
+      actions: read
+      security-events: write
     uses: FelipeFuhr/ffreis-workflows-general/.github/workflows/general-scan-grype-fs.yml@d9792d01b442d7f2d3d2c6855cb312d885594e0f # v1.2.1
     with:
       scan-ref: .

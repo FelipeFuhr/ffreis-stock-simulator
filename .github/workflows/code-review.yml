@@ -30,9 +30,6 @@ on:
       - "Makefile"
       - ".github/workflows/code-review.yml"
 
-permissions:
-  contents: read
-
 concurrency:
   group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
   cancel-in-progress: true
@@ -42,6 +39,8 @@ jobs:
     if: ${{ !github.event.pull_request.draft }}
     runs-on: ubuntu-latest
     timeout-minutes: 35
+    permissions:
+      contents: read
     defaults:
       run:
         shell: bash

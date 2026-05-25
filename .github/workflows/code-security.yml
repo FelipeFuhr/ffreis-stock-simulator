@@ -29,15 +29,14 @@ on:
   schedule:
     - cron: "0 9 * * 1"
 
-permissions:
-  contents: read
-
 concurrency:
   group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
   cancel-in-progress: true
 
 jobs:
   deps-security:
+    permissions:
+      contents: read
     uses: FelipeFuhr/ffreis-workflows-python/.github/workflows/python-security.yml@v1.0.1
     with:
       python-version: "3.13"

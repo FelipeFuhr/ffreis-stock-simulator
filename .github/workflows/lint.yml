@@ -29,11 +29,10 @@ concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}
   cancel-in-progress: true
 
-permissions:
-  contents: read
-
 jobs:
   lint:
+    permissions:
+      contents: read
     uses: FelipeFuhr/ffreis-workflows-python/.github/workflows/python-lint.yml@v1.0.1
     with:
       python-version: "3.13"

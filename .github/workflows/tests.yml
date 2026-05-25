@@ -25,12 +25,11 @@ concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}
   cancel-in-progress: true
 
-permissions:
-  contents: read
-
 jobs:
   unit-tests:
     if: ${{ !github.event.pull_request.draft }}
+    permissions:
+      contents: read
     uses: FelipeFuhr/ffreis-workflows-python/.github/workflows/python-test.yml@v1.0.1
     with:
       python-version: "3.13"

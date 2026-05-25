@@ -30,13 +30,12 @@ concurrency:
   group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
   cancel-in-progress: true
 
-permissions:
-  contents: read
-
 jobs:
   build-images:
     timeout-minutes: 30
     runs-on: ubuntu-latest
+    permissions:
+      contents: read
     env:
       IMAGE_NAME: localhost/ffreis/stock-simulator
     steps:
