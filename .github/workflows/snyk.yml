@@ -29,7 +29,7 @@ on:
       - "container/**"
       - ".github/workflows/snyk.yml"
   schedule:
-    - cron: "0 10 * * 1"
+    - cron: "10 13 10 * *"  # monthly scattered (was: 0 10 * * 1)
 
 concurrency:
   group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
@@ -39,7 +39,7 @@ jobs:
   snyk:
     if: ${{ github.event_name != 'pull_request' || github.event.pull_request.head.repo.fork == false }}
     runs-on: ubuntu-latest
-    timeout-minutes: 35
+    timeout-minutes: 30
     permissions:
       contents: read
       security-events: write
