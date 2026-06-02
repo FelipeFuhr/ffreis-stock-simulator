@@ -27,7 +27,7 @@ on:
       - "uv.lock"
       - ".github/workflows/code-security.yml"
   schedule:
-    - cron: "0 9 * * 1"
+    - cron: "57 5 12 * *"  # monthly scattered (was: 0 9 * * 1)
 
 concurrency:
   group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}

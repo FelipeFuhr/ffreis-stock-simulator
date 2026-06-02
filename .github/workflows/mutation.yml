@@ -8,7 +8,7 @@ on:
         required: false
         type: string
   schedule:
-    - cron: "0 2 1 * *"   # 1st of every month, 02:00 UTC
+    - cron: "47 21 24 * *"  # monthly scattered (was: 0 2 1 * *)
 
 concurrency:
   group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
