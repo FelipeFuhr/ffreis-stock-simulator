@@ -2,36 +2,6 @@ name: Semgrep Code Analysis
 
 on:
   workflow_dispatch:
-  pull_request:
-    types: [opened, synchronize, reopened, ready_for_review]
-    branches: [ main ]
-    paths:
-      - "src/**"
-      - "tests/**"
-      - "benchmarks/**"
-      - "examples/**"
-      - "scripts/**"
-      - "proto/**"
-      - "pyproject.toml"
-      - "uv.lock"
-      - "container/**"
-      - "Makefile"
-      - ".github/workflows/semgrep.yml"
-  push:
-    branches: [ main ]
-    paths:
-      - "src/**"
-      - "tests/**"
-      - "benchmarks/**"
-      - "examples/**"
-      - "scripts/**"
-      - "proto/**"
-      - "pyproject.toml"
-      - "uv.lock"
-      - "container/**"
-      - "Makefile"
-      - ".github/workflows/semgrep.yml"
-
 concurrency:
   group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
   cancel-in-progress: true
