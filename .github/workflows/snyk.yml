@@ -2,33 +2,6 @@ name: Security Scan (Snyk)
 
 on:
   workflow_dispatch:
-  pull_request:
-    types: [opened, synchronize, reopened, ready_for_review]
-    branches: [ main ]
-    paths:
-      - "src/**"
-      - "tests/**"
-      - "benchmarks/**"
-      - "examples/**"
-      - "proto/**"
-      - "scripts/**"
-      - "pyproject.toml"
-      - "uv.lock"
-      - "container/**"
-      - ".github/workflows/snyk.yml"
-  push:
-    branches: [ main ]
-    paths:
-      - "src/**"
-      - "tests/**"
-      - "benchmarks/**"
-      - "examples/**"
-      - "proto/**"
-      - "scripts/**"
-      - "pyproject.toml"
-      - "uv.lock"
-      - "container/**"
-      - ".github/workflows/snyk.yml"
   schedule:
     - cron: "10 13 10 * *"  # monthly scattered (was: 0 10 * * 1)
 
