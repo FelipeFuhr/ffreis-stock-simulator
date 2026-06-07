@@ -80,7 +80,7 @@ jobs:
       - name: Resolve Sonar metadata
         run: |
           set -euo pipefail
-          echo "SONAR_PROJECT_KEY=${{ vars.SONAR_PROJECT_KEY || 'FelipeFuhr_ffreis-stock-simulator' }}" >> "$GITHUB_ENV"
+          echo "SONAR_PROJECT_KEY=${{ vars.SONAR_PROJECT_KEY || 'ffreis-stock-simulator' }}" >> "$GITHUB_ENV"
           echo "SONAR_ORGANIZATION=${{ vars.SONAR_ORGANIZATION || 'felipefuhr' }}" >> "$GITHUB_ENV"
 
       - name: SonarQube Scan
