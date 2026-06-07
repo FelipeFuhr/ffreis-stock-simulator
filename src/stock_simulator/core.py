@@ -108,7 +108,7 @@ def step_core(
 
 
 @njit(cache=True)  # pragma: no cover
-def step_core_jit(
+def step_core_jit(  # NOSONAR — Numba @njit requires flat scalar parameters; dataclass wrappers are unsupported
     t: int,
     done: bool,
     portfolio: NDArray[np_float64],
@@ -217,10 +217,7 @@ def step_core_jit(
 
         if otype == _ORDER_MARKET:
             filled = True
-        elif side == _BUY_SIDE and low <= limit_price:
-            filled = True
-            fill_price = limit_price
-        elif side == _SELL_SIDE and high >= limit_price:
+        elif (side == _BUY_SIDE and low <= limit_price) or (side == _SELL_SIDE and high >= limit_price):
             filled = True
             fill_price = limit_price
 
@@ -414,10 +411,7 @@ def _match_orders(
 
         if order_type == _ORDER_MARKET:
             filled = True
-        elif side == _BUY_SIDE and low <= limit_price:
-            filled = True
-            fill_price = limit_price
-        elif side == _SELL_SIDE and high >= limit_price:
+        elif (side == _BUY_SIDE and low <= limit_price) or (side == _SELL_SIDE and high >= limit_price):
             filled = True
             fill_price = limit_price
 

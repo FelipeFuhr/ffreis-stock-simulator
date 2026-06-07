@@ -6,6 +6,7 @@ from types import ModuleType
 from typing import TYPE_CHECKING, Literal, Protocol, cast
 
 from numpy import asarray as np_asarray
+from numpy import bool_ as np_bool_
 from numpy import float64 as np_float64
 from numpy import nan as np_nan
 from numpy.typing import NDArray
@@ -170,6 +171,64 @@ def _load_engine() -> MarketEnv:
     return MarketEnv(data=market_data, cfg=config)
 
 
+def _build_actions_matrix(
+    actions: list[EncodedActionModel],
+    http_exception_cls: _HTTPExceptionFactory,
+    bad_request_status: int,
+) -> NDArray[np_float64]:
+    """Convert encoded action models to a numpy matrix for the engine."""
+    rows: list[list[float]] = []
+    for action in actions:
+        limit_price = np_nan
+        if action.has_limit_price:
+            if action.limit_price is None:
+                raise http_exception_cls(  # NOSONAR — factory callable wraps FastAPI HTTPException, not a generic base
+                    status_code=bad_request_status,
+                    detail="limit_price must be provided when has_limit_price=true",
+                )
+            limit_price = float(action.limit_price)
+        rows.append(
+            [
+                float(action.side_code),
+                float(action.units),
+                float(action.order_type_code),
+                float(limit_price),
+            ]
+        )
+    return np_asarray(rows, dtype=np_float64)
+
+
+def _build_step_many_response(
+    observations: dict[str, NDArray[np_float64]],
+    rewards: NDArray[np_float64],
+    dones: NDArray[np_bool_],
+    trace: tuple[object, ...],
+) -> StepManyResponse:
+    """Build a StepManyResponse from raw engine outputs."""
+    num_rows = int(rewards.shape[0])
+    observation_rows: list[ObservationModel] = []
+    for i in range(num_rows):
+        observation_rows.append(
+            ObservationModel(
+                market_window_handle=MarketWindowViewHandleModel(
+                    start=int(observations["market_window_handle"][i, 0]),
+                    end=int(observations["market_window_handle"][i, 1]),
+                    t=int(observations["market_window_handle"][i, 2]),
+                    current_price=float(observations["market_window_handle"][i, 3]),
+                ),
+                portfolio_vector=observations["portfolio_vector"][i].tolist(),
+                order_summary_vector=observations["order_summary_vector"][i].tolist(),
+                done=bool(dones[i]),
+            )
+        )
+    return StepManyResponse(
+        observations=observation_rows,
+        rewards=rewards.tolist(),
+        dones=dones.tolist(),
+        trace=[StepTraceRowModel.from_dataclass(row) for row in trace],  # type: ignore[arg-type]
+    )
+
+
 def create_app() -> FastAPI:
     """Create the HTTP service app with health/readiness and metrics endpoints."""
     fastapi_mod, make_asgi_app, _ = _require_api_dependencies()
@@ -247,26 +306,7 @@ def create_app() -> FastAPI:
         env = require_env()
         if not payload.actions:
             return StepManyResponse(observations=[], rewards=[], dones=[], trace=[])
-
-        rows: list[list[float]] = []
-        for action in payload.actions:
-            limit_price = np_nan
-            if action.has_limit_price:
-                if action.limit_price is None:
-                    raise http_exception_cls(
-                        status_code=status.HTTP_400_BAD_REQUEST,
-                        detail="limit_price must be provided when has_limit_price=true",
-                    )
-                limit_price = float(action.limit_price)
-            rows.append(
-                [
-                    float(action.side_code),
-                    float(action.units),
-                    float(action.order_type_code),
-                    float(limit_price),
-                ]
-            )
-        actions_matrix: NDArray[np_float64] = np_asarray(rows, dtype=np_float64)
+        actions_matrix = _build_actions_matrix(payload.actions, http_exception_cls, status.HTTP_400_BAD_REQUEST)
         try:
             observations, rewards, dones, trace = env.step_many(
                 actions_matrix,
@@ -274,29 +314,7 @@ def create_app() -> FastAPI:
             )
         except ValueError as exc:
             raise http_exception_cls(status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc)) from exc
-
-        num_rows = int(rewards.shape[0])
-        observation_rows: list[ObservationModel] = []
-        for i in range(num_rows):
-            observation_rows.append(
-                ObservationModel(
-                    market_window_handle=MarketWindowViewHandleModel(
-                        start=int(observations["market_window_handle"][i, 0]),
-                        end=int(observations["market_window_handle"][i, 1]),
-                        t=int(observations["market_window_handle"][i, 2]),
-                        current_price=float(observations["market_window_handle"][i, 3]),
-                    ),
-                    portfolio_vector=observations["portfolio_vector"][i].tolist(),
-                    order_summary_vector=observations["order_summary_vector"][i].tolist(),
-                    done=bool(dones[i]),
-                )
-            )
-        return StepManyResponse(
-            observations=observation_rows,
-            rewards=rewards.tolist(),
-            dones=dones.tolist(),
-            trace=[StepTraceRowModel.from_dataclass(row) for row in trace],
-        )
+        return _build_step_many_response(observations, rewards, dones, trace)
 
     return app
 
