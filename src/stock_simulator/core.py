@@ -108,8 +108,8 @@ def step_core(
 
 
 @njit(cache=True)  # pragma: no cover
-def step_core_jit(  # NOSONAR — Numba @njit requires flat scalar parameters; dataclass wrappers are unsupported
-    t: int,
+def step_core_jit(
+    t: int,  # NOSONAR — Numba @njit requires flat scalar parameters; dataclass wrappers are unsupported
     done: bool,
     portfolio: NDArray[np_float64],
     order_active: NDArray[np_int8],
