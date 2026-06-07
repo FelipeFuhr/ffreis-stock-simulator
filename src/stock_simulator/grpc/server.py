@@ -144,7 +144,7 @@ class _StepManyResponseFactory(Protocol):
 
 
 class _StepTraceRowFactory(Protocol):
-    def __call__(
+    def __call__(  # NOSONAR — parameter count mirrors protobuf-generated StepTraceRow fields; cannot be reduced
         self,
         *,
         index: int,
