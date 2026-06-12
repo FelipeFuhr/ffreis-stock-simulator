@@ -7,6 +7,8 @@ on:
     branches: [main, master]
   schedule:
     - cron: "25 6 4 * *"  # monthly scattered (was: 0 6 * * 1)
+  workflow_dispatch:
+
 
 concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}
@@ -39,15 +41,17 @@ jobs:
       contents: read
       actions: read
       security-events: write
-    uses: FelipeFuhr/ffreis-workflows-general/.github/workflows/general-gitleaks.yml@caa797cc7baec52e99f21b86f532a4b7c88cf4fa # fix/grype-install-outside-scan-path
+    uses: FelipeFuhr/ffreis-workflows-general/.github/workflows/general-gitleaks.yml@ce7169b36bd25b1c4c0c8077aa78ecde6d6ca7d5  # v1.6.0
     with:
       working-directory: "."
       scan-history: true
       upload-sarif: false
 
+      runner: ${{ (github.event_name == 'pull_request' || github.event_name == 'workflow_dispatch') && '["ubuntu-latest"]' || '["self-hosted","spot","linux","x64"]' }}
   osv:
     needs: changes
     if: |
+      (vars.FLEET_SPOT_CI != 'true' || github.event_name == 'workflow_dispatch') &&
       always() && (
         needs.changes.result == 'skipped' ||
         needs.changes.outputs.code == 'true'
@@ -61,13 +65,15 @@ jobs:
       working-directory: "."
       upload-sarif: false
 
+      runner: ${{ (github.event_name == 'pull_request' || github.event_name == 'workflow_dispatch') && '["ubuntu-latest"]' || '["self-hosted","spot","linux","x64"]' }}
   codeql:
     if: ${{ github.event_name != 'pull_request' }}
     permissions:
       actions: read
       contents: read
       security-events: write
-    uses: FelipeFuhr/ffreis-workflows-general/.github/workflows/general-codeql.yml@caa797cc7baec52e99f21b86f532a4b7c88cf4fa # fix/grype-install-outside-scan-path
+    uses: FelipeFuhr/ffreis-workflows-general/.github/workflows/general-codeql.yml@ce7169b36bd25b1c4c0c8077aa78ecde6d6ca7d5  # v1.6.0
     with:
       languages: "python"
       source-root: "."
+      runner: ${{ (github.event_name == 'pull_request' || github.event_name == 'workflow_dispatch') && '["ubuntu-latest"]' || '["self-hosted","spot","linux","x64"]' }}
