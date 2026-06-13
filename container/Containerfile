@@ -5,6 +5,7 @@ FROM python:3.14-slim@sha256:5b3879b6f3cb77e712644d50262d05a7c146b7312d784a18eff
 ENV PYTHONDONTWRITEBYTECODE=1 \
     PYTHONUNBUFFERED=1 \
     UV_LINK_MODE=copy \
+    UV_PYTHON_INSTALL_DIR=/opt/uv-python \
     VIRTUAL_ENV=/opt/venv \
     PATH="/opt/venv/bin:${PATH}"
 
@@ -23,7 +24,7 @@ COPY examples ./examples
 RUN uv venv "${VIRTUAL_ENV}" --python 3.13 \
     && ./scripts/generate_grpc_stubs.sh \
     && uv sync --active --frozen --extra api --extra grpc \
-    && chown -R appuser:appuser /app "${VIRTUAL_ENV}"
+    && chown -R appuser:appuser /app "${VIRTUAL_ENV}" /opt/uv-python
 
 USER appuser
 
