@@ -1,4 +1,6 @@
 name: Container Vulnerability Scan (Trivy)
+permissions: {}
+
 on:
   workflow_dispatch:
   pull_request:

@@ -1,5 +1,7 @@
 name: Code Security (Dependency Audit)
 
+permissions: {}
+
 on:
   workflow_dispatch:
   pull_request:

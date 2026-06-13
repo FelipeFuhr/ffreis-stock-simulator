@@ -1,5 +1,7 @@
 name: Mutation Testing (mutmut)
 
+permissions: {}
+
 on:
   workflow_dispatch:
     inputs:
