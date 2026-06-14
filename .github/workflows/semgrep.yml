@@ -1,5 +1,7 @@
 name: Semgrep Code Analysis
 
+permissions: {}
+
 on:
   workflow_dispatch:
 concurrency:

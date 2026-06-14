@@ -1,4 +1,6 @@
 name: Container Vulnerability Scan (Trivy)
+permissions: {}
+
 on:
   workflow_dispatch:
   pull_request:
@@ -184,6 +186,11 @@ jobs:
       - name: Upload Trivy SARIF (per image)
         if: always() && (github.event_name != 'pull_request' || github.event.pull_request.head.repo.fork == false)
         shell: bash
+        env:
+          REPO: ${{ github.repository }}
+          SHA: ${{ github.sha }}
+          REF: ${{ github.ref }}
+          GH_TOKEN: ${{ github.token }}
         run: |
           set -euo pipefail
           for f in trivy-results/*.sarif; do
@@ -192,14 +199,12 @@ jobs:
             sarif_payload="$(gzip -c "$f" | base64 | tr -d '\n')"
             gh api \
               -X POST \
-              /repos/${{ github.repository }}/code-scanning/sarifs \
+              "/repos/${REPO}/code-scanning/sarifs" \
               -f sarif="${sarif_payload}" \
               -f tool_name="trivy-${name}" \
-              -f commit_sha="${{ github.sha }}" \
-              -f ref="${{ github.ref }}"
+              -f commit_sha="${SHA}" \
+              -f ref="${REF}"
           done
-        env:
-          GH_TOKEN: ${{ github.token }}
       - name: Check gate results
         if: always()
         run: |

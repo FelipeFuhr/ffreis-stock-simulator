@@ -11,6 +11,8 @@
 #
 name: "CodeQL"
 
+permissions: {}
+
 on:
   schedule:
     - cron: "55 21 22 * *"  # monthly scattered (was: 0 0 * * 1)
