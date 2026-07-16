@@ -16,6 +16,6 @@ jobs:
   lock-sync:
     permissions:
       contents: read
-    uses: FelipeFuhr/ffreis-workflows-python/.github/workflows/python-lock-sync.yml@v1.0.1
+    uses: ffreis-org/ffreis-workflows-python/.github/workflows/python-lock-sync.yml@v1.0.1
     with:
       python-version: "3.13"
