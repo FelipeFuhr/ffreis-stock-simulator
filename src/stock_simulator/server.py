@@ -15,7 +15,13 @@ from pydantic import BaseModel, ConfigDict
 from .config import GameConfig
 from .data import MarketData
 from .env import MarketEnv
-from .types import EnvStateModel, MarketWindowViewHandleModel, ObservationModel, StepTraceRowModel
+from .types import (
+    EnvStateModel,
+    MarketWindowContentModel,
+    MarketWindowViewHandleModel,
+    ObservationModel,
+    StepTraceRowModel,
+)
 
 if TYPE_CHECKING:
     from fastapi import FastAPI
@@ -165,7 +171,10 @@ def _load_engine() -> MarketEnv:
     market_data_csv = os_getenv("MARKET_DATA_CSV")
     if not market_data_csv:
         raise ValueError("MARKET_DATA_CSV must be set when ENGINE_ENABLED=true")
-    market_data = MarketData.from_csv(market_data_csv)
+    if market_data_csv.endswith(".parquet"):
+        market_data = MarketData.from_parquet(market_data_csv)
+    else:
+        market_data = MarketData.from_csv(market_data_csv)
     config_yaml = os_getenv("STOCK_SIM_CONFIG_YAML")
     config = GameConfig.load(yaml_path=config_yaml)
     return MarketEnv(data=market_data, cfg=config)
@@ -300,6 +309,12 @@ def create_app() -> FastAPI:
         env = require_env()
         observation = env.observe()
         return ObserveResponse(observation=ObservationModel.from_dataclass(observation))
+
+    @app.get("/v1/market_window", response_model=MarketWindowContentModel)
+    async def market_window(start: int | None = None, end: int | None = None) -> MarketWindowContentModel:
+        env = require_env()
+        content = env.market_window(start=start, end=end)
+        return MarketWindowContentModel.from_dataclass(content)
 
     @app.post("/v1/step_many", response_model=StepManyResponse)
     async def step_many(payload: StepManyRequest) -> StepManyResponse:

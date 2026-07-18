@@ -213,7 +213,10 @@ _HTTP_TO_GRPC_SURFACE_MAP: dict[str, str] = {
     "/v1/observe": "Observe",
     "/v1/step_many": "StepMany",
 }
-_UNMAPPED_HTTP_PATHS: set[str] = {"/readyz"}
+# /v1/market_window is intentionally HTTP-only for now: the equivalent gRPC RPC is
+# a deferred follow-up (see PR body). Declared here so the surface-parity guard
+# records the intended difference rather than flagging accidental drift.
+_UNMAPPED_HTTP_PATHS: set[str] = {"/readyz", "/v1/market_window"}
 _UNMAPPED_GRPC_METHODS: set[str] = set()
 _HYPOTHESIS_MAX_EXAMPLES = int(os_getenv("HYPOTHESIS_MAX_EXAMPLES", "25"))
 

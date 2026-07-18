@@ -86,6 +86,37 @@ class MarketWindowViewHandle:
 
 
 @dataclass(frozen=True)
+class MarketWindowContent:
+    """Raw OHLCV rows for a resolved market window ``[start, end)``.
+
+    Unlike :class:`MarketWindowViewHandle` (index metadata only), this carries the
+    actual per-bar values, including ``volume`` which is intentionally absent from
+    the numba step core's ``MarketArrays``. All sequences share the same length,
+    ``end - start``.
+
+    Parameters
+    ----------
+    start
+        Inclusive start index of the window.
+    end
+        Exclusive end index of the window. Never exceeds ``t + 1`` (no lookahead).
+    t
+        Current bar index the window was resolved against.
+    open, high, low, close, volume
+        Per-bar values for indices ``[start, end)``.
+    """
+
+    start: int
+    end: int
+    t: int
+    open: tuple[float, ...]
+    high: tuple[float, ...]
+    low: tuple[float, ...]
+    close: tuple[float, ...]
+    volume: tuple[float, ...]
+
+
+@dataclass(frozen=True)
 class Observation:
     """Environment observation exposed to agents.
 
@@ -274,6 +305,45 @@ class MarketWindowViewHandleModel(BaseModel):
             end=value.end,
             t=value.t,
             current_price=value.current_price,
+        )
+
+
+class MarketWindowRowsModel(BaseModel):
+    """Per-bar OHLCV column arrays for a market window."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    open: list[float]
+    high: list[float]
+    low: list[float]
+    close: list[float]
+    volume: list[float]
+
+
+class MarketWindowContentModel(BaseModel):
+    """Pydantic transport model for :class:`MarketWindowContent`."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    start: int
+    end: int
+    t: int
+    rows: MarketWindowRowsModel
+
+    @classmethod
+    def from_dataclass(cls, value: MarketWindowContent) -> MarketWindowContentModel:
+        """Create model from dataclass value."""
+        return cls(
+            start=value.start,
+            end=value.end,
+            t=value.t,
+            rows=MarketWindowRowsModel(
+                open=list(value.open),
+                high=list(value.high),
+                low=list(value.low),
+                close=list(value.close),
+                volume=list(value.volume),
+            ),
         )
 
 

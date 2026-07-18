@@ -24,7 +24,16 @@ from .portal import MarketPortal
 from .portfolio import snapshot_from_state
 from .recorder import NullRecorder, Recorder
 from .telemetry import get_telemetry
-from .types import Action, EnvState, Observation, OrderType, Side, StepResult, StepTraceRow
+from .types import (
+    Action,
+    EnvState,
+    MarketWindowContent,
+    Observation,
+    OrderType,
+    Side,
+    StepResult,
+    StepTraceRow,
+)
 
 
 class MarketEnv:
@@ -49,11 +58,15 @@ class MarketEnv:
             close=data.close,
             n=data.n,
         )
+        # Volume is deliberately kept out of MarketArrays (the numba step core) and
+        # carried alongside it so the observation surface can expose it unchanged.
+        self._volume = data.volume
         self._cfg = cfg
         self._rng = default_rng(cfg.seed)
         self._portal = MarketPortal(
             market_arrays=self._market_arrays,
             observation_window=self._cfg.observation_window,
+            volume=self._volume,
         )
         self._core_state = initial_core_state(
             initial_cash=self._cfg.initial_cash,
@@ -392,6 +405,31 @@ class MarketEnv:
             order_summary_vector=orders.to_vector(),
             done=self._core_state.done,
         )
+
+    def market_window(
+        self,
+        start: int | None = None,
+        end: int | None = None,
+    ) -> MarketWindowContent:
+        """Return raw OHLCV rows for the current market window.
+
+        Reads through to the portal against the engine's current bar index, so
+        rows with index greater than ``t`` are never returned. With explicit
+        ``start``/``end`` bounds an agent can fetch earlier history (clamped to
+        ``[0, t + 1)``) to warm up indicators at episode start.
+
+        Parameters
+        ----------
+        start, end
+            Optional window bounds. When both are omitted the current
+            observation window is returned.
+
+        Returns
+        -------
+        MarketWindowContent
+            Window metadata plus per-bar open/high/low/close/volume values.
+        """
+        return self._portal.window_content(self._core_state.t, start=start, end=end)
 
     def _to_env_state(self, state: CoreState) -> EnvState:
         portfolio = snapshot_from_state(state, self._portal.current_price(state.t))
