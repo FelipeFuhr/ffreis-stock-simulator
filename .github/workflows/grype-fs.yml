@@ -18,7 +18,7 @@ jobs:
       contents: read
       actions: read
       security-events: write
-    uses: ffreis-org/ffreis-workflows-general/.github/workflows/general-scan-grype-fs.yml@3858e9e74c805067e454740b195372c7195f333b # v1.5.0
+    uses: FelipeFuhr/ffreis-workflows-general/.github/workflows/general-scan-grype-fs.yml@3858e9e74c805067e454740b195372c7195f333b # v1.5.0
     with:
       path: .
       upload-sarif: ${{ github.event_name != 'pull_request' || github.event.pull_request.head.repo.fork == false }}
