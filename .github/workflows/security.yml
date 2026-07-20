@@ -40,7 +40,7 @@ jobs:
   deps-security:
     permissions:
       contents: read
-    uses: ffreis-org/ffreis-workflows-python/.github/workflows/python-security.yml@v1.0.1
+    uses: FelipeFuhr/ffreis-workflows-python/.github/workflows/python-security.yml@v1.0.1
     with:
       python-version: "3.13"
       uv-extras: "dev api grpc"
