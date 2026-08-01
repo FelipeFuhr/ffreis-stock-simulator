@@ -347,6 +347,7 @@ class MarketEnv:
                 random_draws=random_draws,
                 fee_bps=self._cfg.fee_bps,
                 slippage_bps=self._cfg.slippage_bps,
+                max_leverage=self._cfg.max_leverage,
             )
             self._core_state = CoreState(
                 t=int(next_t),

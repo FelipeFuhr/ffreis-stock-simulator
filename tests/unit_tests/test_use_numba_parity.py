@@ -11,6 +11,7 @@ import math
 from collections.abc import Callable
 
 import pytest
+from numpy import bool_ as np_bool_
 from numpy import float64 as np_float64
 from numpy.typing import NDArray
 
@@ -77,6 +78,47 @@ class TestUseNumbaPath:
         for i in range(len(encoded)):
             assert rewards_py[i] == pytest.approx(float(rewards_nb[i]), rel=1e-5, abs=1e-5)
             assert bool(dones_py[i]) == bool(dones_nb[i])
+
+    def test_python_and_numba_match_through_margin_clip_and_liquidation(
+        self,
+        market_data_factory: Callable[..., MarketData],
+        encode_actions: Callable[[list[Action]], NDArray[np_float64]],
+    ) -> None:
+        # Same trajectory as TestNumbaParity in test_margin_enforcement.py, but driven
+        # through step_many so the second step_core_jit call site is covered too: a
+        # buy clipped to the max_leverage cap, then a price crash that liquidates.
+        closes = [100.0, 100.0, 40.0, 40.0, 40.0, 40.0]
+        encoded = encode_actions(
+            [Action(side="buy", units=500.0, order_type="market")] + [Action(side="hold") for _ in range(4)]
+        )
+
+        def _run(use_numba: bool) -> tuple[NDArray[np_float64], NDArray[np_float64], NDArray[np_bool_]]:
+            cfg = GameConfig(
+                seed=9,
+                use_numba=use_numba,
+                initial_cash=1_000.0,
+                max_leverage=3.0,
+                market_latency_bars=0,
+                partial_fill_min=1.0,
+                partial_fill_max=1.0,
+            )
+            env = MarketEnv(data=market_data_factory(close=closes, spread=0.1), cfg=cfg)
+            env.reset(seed=9)
+            obs, rewards, dones, _ = env.step_many(encoded)
+            return obs["portfolio_vector"], rewards, dones
+
+        portfolio_py, rewards_py, dones_py = _run(use_numba=False)
+        portfolio_nb, rewards_nb, dones_nb = _run(use_numba=True)
+
+        assert portfolio_py.tolist() == portfolio_nb.tolist()
+        assert rewards_py.tolist() == rewards_nb.tolist()
+        assert dones_py.tolist() == dones_nb.tolist()
+        # The clip capped the opening buy at the default fee/slippage:
+        # 3.0 * 1000 / (100.01 * (1 + 3.0 * 0.0004)) = 29.96104704351778 units.
+        assert portfolio_py[0][1] == pytest.approx(29.96104704351778, rel=1e-12)
+        # ...and the crash then liquidated the book and terminated the episode.
+        assert bool(dones_py[1]) is True
+        assert portfolio_py[1][1] == 0.0
 
     @pytest.mark.parametrize("fee_bps", [0.0, 2.0, 10.0])
     def test_fees_apply_consistently(
