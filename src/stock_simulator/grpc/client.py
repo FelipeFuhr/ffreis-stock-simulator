@@ -146,6 +146,9 @@ class _StepTraceRowLike(Protocol):
     leverage: float
     open_orders: int
     market_price: float
+    has_filled_order: bool
+    filled_order_slot: int
+    exec_price: float
 
 
 class _EngineStubProtocol(Protocol):
@@ -296,6 +299,8 @@ class EngineGrpcClient:
                     "leverage": float(trace_row.leverage),
                     "open_orders": int(trace_row.open_orders),
                     "market_price": float(trace_row.market_price),
+                    "filled_order_slot": (int(trace_row.filled_order_slot) if trace_row.has_filled_order else None),
+                    "exec_price": (float(trace_row.exec_price) if trace_row.has_filled_order else None),
                 }
             )
         return (

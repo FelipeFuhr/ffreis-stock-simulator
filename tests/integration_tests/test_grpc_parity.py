@@ -185,6 +185,9 @@ class _ReplyTraceRowLike(Protocol):
     leverage: float
     open_orders: int
     market_price: float
+    has_filled_order: bool
+    filled_order_slot: int
+    exec_price: float
 
 
 class _DirectTraceRowLike(Protocol):
@@ -204,6 +207,8 @@ class _DirectTraceRowLike(Protocol):
     leverage: float
     open_orders: int
     market_price: float
+    filled_order_slot: int | None
+    exec_price: float | None
 
 
 class _EngineGrpcServiceLike(Protocol):
@@ -290,6 +295,8 @@ def _grpc_reply_to_arrays(
                 float(row.leverage),
                 float(row.open_orders),
                 float(row.market_price),
+                float(row.filled_order_slot) if bool(row.has_filled_order) else np_nan,
+                float(row.exec_price) if bool(row.has_filled_order) else np_nan,
             ]
             for row in reply.trace
         ],
@@ -318,6 +325,8 @@ def _trace_rows_to_array(rows: tuple[_DirectTraceRowLike, ...]) -> NDArray[np_fl
                 float(row.leverage),
                 float(row.open_orders),
                 float(row.market_price),
+                float(row.filled_order_slot) if row.filled_order_slot is not None else np_nan,
+                float(row.exec_price) if row.exec_price is not None else np_nan,
             ]
             for row in rows
         ],

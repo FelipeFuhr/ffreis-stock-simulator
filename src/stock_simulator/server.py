@@ -15,6 +15,7 @@ from pydantic import BaseModel, ConfigDict
 from .config import GameConfig
 from .data import MarketData
 from .env import MarketEnv
+from .trace_writer import TraceJsonlWriter
 from .types import (
     EnvState,
     EnvStateModel,
@@ -182,7 +183,15 @@ def _load_engine() -> MarketEnv:
         market_data = MarketData.from_csv(market_data_csv)
     config_yaml = os_getenv("STOCK_SIM_CONFIG_YAML")
     config = GameConfig.load(yaml_path=config_yaml)
-    return MarketEnv(data=market_data, cfg=config)
+    # N10: STOCK_SIM_TRACE_JSONL is a server-startup-time debugging/verification
+    # aid, read directly here rather than through GameConfig.from_env — it is I/O
+    # plumbing, not simulation dynamics, and must not perturb
+    # GameConfig.stable_hash() (the telemetry config-hash tag). Mirrors how
+    # STOCK_SIM_CONFIG_YAML above is also read directly rather than as a
+    # GameConfig field.
+    trace_jsonl_path = os_getenv("STOCK_SIM_TRACE_JSONL")
+    trace_sink = TraceJsonlWriter(trace_jsonl_path) if trace_jsonl_path else None
+    return MarketEnv(data=market_data, cfg=config, trace_sink=trace_sink)
 
 
 # scan-fix(sonar:S3776): extracted out of the /v1/reset route closure — inlining
@@ -288,6 +297,12 @@ def create_app() -> FastAPI:
         except Exception as exc:  # pragma: no cover
             runtime.engine_ready = False
             runtime.engine_error = str(exc)
+
+    @app.on_event("shutdown")
+    async def shutdown() -> None:
+        # Flushes/closes the STOCK_SIM_TRACE_JSONL sink (N10), if one is configured.
+        if runtime.env is not None:
+            runtime.env.close()
 
     def require_env() -> MarketEnv:
         if runtime.env is None:

@@ -85,6 +85,9 @@ class _FakeStepTraceRow:
     leverage: float
     open_orders: int
     market_price: float
+    has_filled_order: bool = False
+    filled_order_slot: int | None = None
+    exec_price: float | None = None
 
 
 @dataclass
@@ -185,6 +188,9 @@ class _FakeEnv:
                     leverage=0.1,
                     open_orders=1,
                     market_price=104.0,
+                    has_filled_order=True,
+                    filled_order_slot=0,
+                    exec_price=104.0,
                 ),
             )
             if include_trace
@@ -300,6 +306,10 @@ def test_engine_grpc_service_methods(monkeypatch: MonkeyPatch) -> None:
     assert step_many.rewards == [5.5]
     assert step_many.dones == [False]
     assert len(step_many.trace) == 1
+    trace_row = cast(_FakeStepTraceRow, step_many.trace[0])
+    assert trace_row.has_filled_order is True
+    assert trace_row.filled_order_slot == 0
+    assert trace_row.exec_price == 104.0
 
 
 def test_engine_grpc_service_reset_omitted_start_t_defaults_to_zero(monkeypatch: MonkeyPatch) -> None:

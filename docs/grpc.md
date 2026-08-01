@@ -24,7 +24,11 @@ uv run --extra grpc stock-simulator-grpc --host 0.0.0.0 --port 50051 --use-numba
 - `StepMany` -> batched encoded actions, returns observations/rewards/dones (+ optional per-step `trace`)
 
 `StepManyRequest` supports `include_trace=true` to return one `StepTraceRow` per processed action
-with action, fill count, reward, done flag, and post-step portfolio snapshot fields.
+with action, fill count, reward, done flag, and post-step portfolio snapshot fields. When a fill
+happened that step, `has_filled_order`/`filled_order_slot`/`exec_price` recover the actually-filled
+order's slot and real execution price (distinct from the row's own `limit_price`, which reflects the
+action *submitted* that step, not necessarily the order that filled — an older queued limit order can
+fill several steps after it was submitted). `has_filled_order=false` means no fill happened that step.
 
 Proto contract:
 

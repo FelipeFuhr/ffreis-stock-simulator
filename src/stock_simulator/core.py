@@ -1,6 +1,9 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
+from math import inf as math_inf
+from math import isnan as math_isnan
+from math import nan as math_nan
 
 from numba import njit
 from numpy import array as np_array
@@ -45,9 +48,132 @@ class MarketArrays:
 
 @dataclass(frozen=True)
 class CoreStepOutput:
+    """Result of one core step.
+
+    ``filled_order_slot``/``exec_price`` are additive (N9) observability fields:
+    when at least one order filled this step they carry the *last* fill processed
+    in the match loop (slot index into the order arrays, and the real execution
+    price used for that trade's cash/units update) — not an aggregate over every
+    fill. At most two orders (one buy, one sell) can be simultaneously live per
+    :func:`_find_side_slot_or_free`, so "last" only loses information in the rare
+    case both fill on the same bar; ``fills`` still reports the true count. Both
+    are ``None`` when ``fills == 0``.
+    """
+
     state: CoreState
     fills: int
     equity_delta: float
+    filled_order_slot: int | None = None
+    exec_price: float | None = None
+
+
+def leverage_ratio(units: float, price: float, equity: float) -> float:
+    """Account leverage: gross exposure over equity.
+
+    Single definition of leverage for the whole engine — the reporting path
+    (``portfolio.snapshot_from_state``) calls this directly, and the fill-time
+    margin check below is an algebraic rearrangement of the same expression.
+
+    A book with no exposure has ``0.0`` leverage regardless of the sign of equity.
+    Exposure carried against non-positive equity has undefined (unbounded) leverage
+    and reports ``inf``; callers that serialize the value are responsible for mapping
+    it onto a finite, JSON-safe convention.
+    """
+    exposure = abs(units * price)
+    if equity > 0.0:
+        return exposure / equity
+    return math_inf if exposure > 0.0 else 0.0
+
+
+def clip_units_for_leverage(
+    cash: float,
+    units: float,
+    signed_units: float,
+    exec_price: float,
+    fee_bps: float,
+    max_leverage: float,
+) -> float:
+    """Clip a fill down to the largest size that keeps leverage within ``max_leverage``.
+
+    Acts as one more upper bound on fill size, alongside the ``partial_fill_min`` /
+    ``partial_fill_max`` draw — never a separate all-or-nothing rejection path. The
+    order still fills, just for fewer units; a request that cannot add any exposure
+    at all fills for zero units (a real broker declines the extra margin, it does not
+    error).
+
+    Two cases are always filled at the requested size:
+
+    * **De-risking** — the fill shrinks gross exposure (``abs(units_after) <=
+      abs(units)``). Closing or reducing a position is allowed even when the account
+      is already above the cap, exactly like a real margin system.
+    * **Within the cap** — leverage after the fill is at or under ``max_leverage``.
+      The boundary is inclusive, so an order landing exactly on the cap fills whole.
+
+    Otherwise the fill is clipped to ``a`` units, the solution of
+
+    ``(direction * units + a) * exec_price == max_leverage * (equity - a * exec_price * fee_rate)``
+
+    which is :func:`leverage_ratio` at the post-fill book, set equal to the cap and
+    solved for size (equity is marked at ``exec_price``; the fee shrinks it, hence the
+    ``1 + cap * fee_rate`` denominator). The comparisons are written multiplied-through
+    rather than as divisions so this and its numba mirror agree bit-for-bit.
+    """
+    if exec_price <= 0.0:
+        return signed_units
+
+    fee_rate = fee_bps / 10_000.0
+    equity_before = cash + units * exec_price
+    equity_after = equity_before - abs(signed_units) * exec_price * fee_rate
+    units_after = units + signed_units
+
+    if abs(units_after) <= abs(units):
+        return signed_units
+    if equity_after > 0.0 and abs(units_after) * exec_price <= max_leverage * equity_after:
+        return signed_units
+
+    cap = max_leverage if max_leverage > 0.0 else 0.0
+    direction = 1.0 if signed_units > 0.0 else -1.0
+    allowed = (cap * equity_before - direction * units * exec_price) / (exec_price * (1.0 + cap * fee_rate))
+    if allowed <= 0.0:
+        return 0.0
+    # min() keeps this a clip and never an upsize: direction * abs(signed_units)
+    # reproduces signed_units exactly.
+    return direction * min(allowed, abs(signed_units))
+
+
+def settle_insolvency(portfolio: NDArray[np_float64], price: float) -> bool:
+    """Force-close the book when equity is non-positive at ``price``.
+
+    Realizes the whole position into cash at ``price`` so equity becomes exactly cash
+    and cannot drift further negative from a stale unit count on later steps. Returns
+    whether the account was insolvent, which the caller turns into a terminal step.
+    """
+    equity = portfolio[0] + portfolio[1] * price
+    if equity > 0.0:
+        return False
+    portfolio[0] = equity
+    portfolio[1] = 0.0
+    return True
+
+
+# Sentinel values for "no fill this step" on the numba side, where @njit functions
+# cannot return Optional[int]/Optional[float]. The pure-Python match loop threads
+# real None straight through instead. `_fill_slot_from_jit`/`_exec_price_from_jit`
+# decode the sentinels back into Optional values at the Python wrapper boundary
+# (`step_core_numba`, `MarketEnv._advance_one_step`) so both engines expose the
+# same `int | None` / `float | None` contract on `CoreStepOutput`.
+_NO_FILL_SLOT = -1
+_NO_FILL_PRICE = math_nan
+
+
+def _fill_slot_from_jit(slot: int) -> int | None:
+    """Decode the njit "no fill" sentinel (-1) into an Optional slot index."""
+    return None if slot < 0 else int(slot)
+
+
+def _exec_price_from_jit(price: float) -> float | None:
+    """Decode the njit "no fill" sentinel (NaN) into an Optional execution price."""
+    return None if math_isnan(price) else float(price)
 
 
 def initial_core_state(initial_cash: float, max_orders: int, start_t: int = 0) -> CoreState:
@@ -79,12 +205,16 @@ def step_core(
     next_state = _copy_state(state)
 
     _apply_action(next_state, action, config)
-    fills = _match_orders(next_state, market_arrays, config, random_draws)
+    fills, filled_order_slot, exec_price = _match_orders(next_state, market_arrays, config, random_draws)
+    # Solvency is checked twice per step, against both ways equity can be wiped out:
+    # a fill on this bar, then the mark-to-market move into the next bar.
+    insolvent_on_fill = settle_insolvency(next_state.portfolio, float(market_arrays.close[state.t]))
 
     next_t = state.t + 1
     if next_t >= market_arrays.n:
         next_t = market_arrays.n - 1
-    done = next_t >= market_arrays.n - 1
+    insolvent_on_mark = settle_insolvency(next_state.portfolio, float(market_arrays.close[next_t]))
+    done = next_t >= market_arrays.n - 1 or insolvent_on_fill or insolvent_on_mark
 
     advanced_state = CoreState(
         t=next_t,
@@ -104,7 +234,54 @@ def step_core(
         state=advanced_state,
         fills=fills,
         equity_delta=next_equity - prev_equity,
+        filled_order_slot=filled_order_slot,
+        exec_price=exec_price,
     )
+
+
+@njit(cache=True)  # pragma: no cover
+def _clip_units_for_leverage_jit(
+    cash: float,
+    units: float,
+    signed_units: float,
+    exec_price: float,
+    fee_bps: float,
+    max_leverage: float,
+) -> float:
+    # Numba mirror of clip_units_for_leverage — the two bodies must stay identical
+    # statement for statement; tests/unit_tests/test_margin_enforcement.py pins parity.
+    if exec_price <= 0.0:
+        return signed_units
+
+    fee_rate = fee_bps / 10_000.0
+    equity_before = cash + units * exec_price
+    equity_after = equity_before - abs(signed_units) * exec_price * fee_rate
+    units_after = units + signed_units
+
+    if abs(units_after) <= abs(units):
+        return signed_units
+    if equity_after > 0.0 and abs(units_after) * exec_price <= max_leverage * equity_after:
+        return signed_units
+
+    cap = max_leverage if max_leverage > 0.0 else 0.0
+    direction = 1.0 if signed_units > 0.0 else -1.0
+    allowed = (cap * equity_before - direction * units * exec_price) / (exec_price * (1.0 + cap * fee_rate))
+    if allowed <= 0.0:
+        return 0.0
+    # min() keeps this a clip and never an upsize: direction * abs(signed_units)
+    # reproduces signed_units exactly.
+    return direction * min(allowed, abs(signed_units))
+
+
+@njit(cache=True)  # pragma: no cover
+def _settle_insolvency_jit(portfolio: NDArray[np_float64], price: float) -> bool:
+    # Numba mirror of settle_insolvency — keep both bodies identical.
+    equity = portfolio[0] + portfolio[1] * price
+    if equity > 0.0:
+        return False
+    portfolio[0] = equity
+    portfolio[1] = 0.0
+    return True
 
 
 @njit(cache=True)  # pragma: no cover
@@ -133,6 +310,7 @@ def step_core_jit(
     random_draws: NDArray[np_float64],
     fee_bps: float,
     slippage_bps: float,
+    max_leverage: float,
 ) -> tuple[
     int,
     bool,
@@ -146,7 +324,13 @@ def step_core_jit(
     NDArray[np_int32],
     int,
     float,
+    int,
+    float,
 ]:
+    # The trailing (int, float) pair is the N9 fill-slot/exec-price sentinel pair —
+    # decoded back to Optional at the Python wrapper boundary by
+    # _fill_slot_from_jit/_exec_price_from_jit. Numba @njit cannot return
+    # Optional[int]/Optional[float], hence the -1/NaN sentinels here.
     if done:
         return (
             t,
@@ -161,6 +345,8 @@ def step_core_jit(
             order_ttl.copy(),
             0,
             0.0,
+            _NO_FILL_SLOT,
+            _NO_FILL_PRICE,
         )
 
     portfolio_next = portfolio.copy()
@@ -202,6 +388,8 @@ def step_core_jit(
     high = float(market_high[t])
     low = float(market_low[t])
     fills = 0
+    fill_slot = _NO_FILL_SLOT
+    fill_exec_price = _NO_FILL_PRICE
 
     for i in range(order_active_next.size):
         if order_active_next[i] == np_int8(0):
@@ -223,9 +411,17 @@ def step_core_jit(
 
         if filled:
             fraction = random_draws[i]
-            signed_units = float(side) * float(order_units_next[i]) * float(fraction)
+            requested_units = float(side) * float(order_units_next[i]) * float(fraction)
             slip = slippage_bps / 10_000.0
-            exec_price = fill_price * (1 + slip) if signed_units > 0 else fill_price * (1 - slip)
+            exec_price = fill_price * (1 + slip) if requested_units > 0 else fill_price * (1 - slip)
+            signed_units = _clip_units_for_leverage_jit(
+                portfolio_next[0],
+                portfolio_next[1],
+                requested_units,
+                exec_price,
+                fee_bps,
+                max_leverage,
+            )
             notional = abs(signed_units) * exec_price
             fee = notional * (fee_bps / 10_000.0)
             portfolio_next[0] -= signed_units * exec_price + fee
@@ -233,6 +429,8 @@ def step_core_jit(
             order_active_next[i] = np_int8(0)
             order_ttl_next[i] = np_int32(0)
             fills += 1
+            fill_slot = i
+            fill_exec_price = exec_price
         else:
             ttl = int(order_ttl_next[i]) - 1
             order_ttl_next[i] = np_int32(ttl)
@@ -240,10 +438,15 @@ def step_core_jit(
                 order_active_next[i] = np_int8(0)
                 order_ttl_next[i] = np_int32(0)
 
+    # Mirrors step_core: solvency is settled against this bar's fills, then against
+    # the mark-to-market move into the next bar.
+    insolvent_on_fill = _settle_insolvency_jit(portfolio_next, float(market_close[t]))
+
     next_t = t + 1
     if next_t >= market_n:
         next_t = market_n - 1
-    done_out = next_t >= market_n - 1
+    insolvent_on_mark = _settle_insolvency_jit(portfolio_next, float(market_close[next_t]))
+    done_out = next_t >= market_n - 1 or insolvent_on_fill or insolvent_on_mark
     next_equity = portfolio_next[0] + portfolio_next[1] * float(market_close[next_t])
     equity_delta = next_equity - prev_equity
 
@@ -260,6 +463,8 @@ def step_core_jit(
         order_ttl_next,
         fills,
         equity_delta,
+        fill_slot,
+        fill_exec_price,
     )
 
 
@@ -286,6 +491,8 @@ def step_core_numba(
         next_order_ttl,
         fills,
         equity_delta,
+        fill_slot,
+        fill_exec_price,
     ) = step_core_jit(
         t=state.t,
         done=state.done,
@@ -311,6 +518,7 @@ def step_core_numba(
         random_draws=random_draws,
         fee_bps=config.fee_bps,
         slippage_bps=config.slippage_bps,
+        max_leverage=config.max_leverage,
     )
     return CoreStepOutput(
         state=CoreState(
@@ -327,6 +535,8 @@ def step_core_numba(
         ),
         fills=fills,
         equity_delta=equity_delta,
+        filled_order_slot=_fill_slot_from_jit(fill_slot),
+        exec_price=_exec_price_from_jit(fill_exec_price),
     )
 
 
@@ -391,11 +601,22 @@ def _match_orders(
     market_arrays: MarketArrays,
     config: GameConfig,
     random_draws: NDArray[np_float64],
-) -> int:
+) -> tuple[int, int | None, float | None]:
+    """Match eligible orders against this bar and apply fills.
+
+    Returns
+    -------
+    tuple[int, int | None, float | None]
+        ``(fills, filled_order_slot, exec_price)``. The slot/price describe the
+        *last* fill processed this step (N9 observability fields threaded onto
+        :class:`StepTraceRow` by the caller); both are ``None`` when ``fills == 0``.
+    """
     open_price = float(market_arrays.open[state.t])
     high = float(market_arrays.high[state.t])
     low = float(market_arrays.low[state.t])
     fills = 0
+    filled_order_slot: int | None = None
+    last_exec_price: float | None = None
 
     for i in range(state.order_active.size):
         if state.order_active[i] == 0:
@@ -417,17 +638,22 @@ def _match_orders(
 
         if filled:
             fraction = float(random_draws[i])
-            signed_units = float(side) * float(state.order_units[i]) * fraction
-            _execute_trade(
-                state.portfolio,
-                signed_units=signed_units,
-                fill_price=fill_price,
-                fee_bps=config.fee_bps,
-                slippage_bps=config.slippage_bps,
+            requested_units = float(side) * float(state.order_units[i]) * fraction
+            exec_price = _execution_price(fill_price, requested_units, config.slippage_bps)
+            signed_units = clip_units_for_leverage(
+                float(state.portfolio[0]),
+                float(state.portfolio[1]),
+                requested_units,
+                exec_price,
+                config.fee_bps,
+                config.max_leverage,
             )
+            _execute_trade(state.portfolio, signed_units, exec_price, config.fee_bps)
             state.order_active[i] = np_int8(0)
             state.order_ttl[i] = np_int32(0)
             fills += 1
+            filled_order_slot = i
+            last_exec_price = exec_price
             continue
 
         ttl = int(state.order_ttl[i]) - 1
@@ -436,18 +662,20 @@ def _match_orders(
             state.order_active[i] = np_int8(0)
             state.order_ttl[i] = np_int32(0)
 
-    return fills
+    return fills, filled_order_slot, last_exec_price
+
+
+def _execution_price(fill_price: float, signed_units: float, slippage_bps: float) -> float:
+    slip = slippage_bps / 10_000.0
+    return fill_price * (1 + slip) if signed_units > 0 else fill_price * (1 - slip)
 
 
 def _execute_trade(
     portfolio: NDArray[np_float64],
     signed_units: float,
-    fill_price: float,
+    exec_price: float,
     fee_bps: float,
-    slippage_bps: float,
 ) -> None:
-    slip = slippage_bps / 10_000.0
-    exec_price = fill_price * (1 + slip) if signed_units > 0 else fill_price * (1 - slip)
     notional = abs(signed_units) * exec_price
     fee = notional * (fee_bps / 10_000.0)
     portfolio[0] -= signed_units * exec_price + fee

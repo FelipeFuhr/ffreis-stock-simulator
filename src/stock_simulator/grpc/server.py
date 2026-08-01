@@ -163,6 +163,9 @@ class _StepTraceRowFactory(Protocol):
         leverage: float,
         open_orders: int,
         market_price: float,
+        has_filled_order: bool,
+        filled_order_slot: int,
+        exec_price: float,
     ) -> ProtoMessage: ...
 
 
@@ -375,6 +378,9 @@ class EngineGrpcService:
                     leverage=float(row.leverage),
                     open_orders=int(row.open_orders),
                     market_price=float(row.market_price),
+                    has_filled_order=bool(row.has_filled_order),
+                    filled_order_slot=0 if row.filled_order_slot is None else int(row.filled_order_slot),
+                    exec_price=0.0 if row.exec_price is None else float(row.exec_price),
                 )
             )
         return pb2.StepManyResponse(

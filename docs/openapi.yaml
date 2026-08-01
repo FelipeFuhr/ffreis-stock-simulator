@@ -469,6 +469,20 @@ components:
         market_price:
           type: number
           title: Market Price
+        has_filled_order:
+          type: boolean
+          title: Has Filled Order
+          default: false
+        filled_order_slot:
+          anyOf:
+          - type: integer
+          - type: 'null'
+          title: Filled Order Slot
+        exec_price:
+          anyOf:
+          - type: number
+          - type: 'null'
+          title: Exec Price
       additionalProperties: false
       type: object
       required:
