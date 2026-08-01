@@ -12,6 +12,8 @@ from .config import GameConfig
 from .core import (
     CoreState,
     MarketArrays,
+    _exec_price_from_jit,
+    _fill_slot_from_jit,
     initial_core_state,
     step_core,
     step_core_jit,
@@ -24,6 +26,7 @@ from .portal import MarketPortal
 from .portfolio import snapshot_from_state
 from .recorder import NullRecorder, Recorder
 from .telemetry import get_telemetry
+from .trace_writer import TraceJsonlWriter
 from .types import (
     Action,
     EnvState,
@@ -50,6 +53,7 @@ class MarketEnv:
         data: MarketData,
         cfg: GameConfig,
         recorder: Recorder | None = None,
+        trace_sink: TraceJsonlWriter | None = None,
     ):
         self._market_arrays = MarketArrays(
             open=data.open,
@@ -76,6 +80,17 @@ class MarketEnv:
         self._config_hash = self._cfg.stable_hash()
         self._telemetry.set_config_hash(self._config_hash)
         self._recorder = recorder if recorder is not None else NullRecorder()
+        # N10 debugging/verification aid: when set, every step_many trace row is
+        # written to this sink regardless of the per-request include_trace flag
+        # (see STOCK_SIM_TRACE_JSONL in server.py). Distinct from Recorder above,
+        # which is the structured episode-replay port and is never wired into
+        # step_many's headless bulk-execution path by design.
+        self._trace_sink = trace_sink
+
+    def close(self) -> None:
+        """Release resources this environment owns (e.g. a configured trace sink)."""
+        if self._trace_sink is not None:
+            self._trace_sink.close()
 
     def reset(self, seed: int | None = None, start_t: int = 0) -> EnvState:
         """Reset the environment and return the initial state.
@@ -260,27 +275,37 @@ class MarketEnv:
         for i in range(num_steps):
             action_row = actions[i]
             action_side_code, action_units, action_order_code, action_limit = action_row
-            step_fills, rewards[i] = self._advance_one_step(action_row, random_draws_batch[i])
+            step_fills, rewards[i], filled_order_slot, exec_price = self._advance_one_step(
+                action_row, random_draws_batch[i]
+            )
             observation = self.observe()
             tensors = observation.to_numpy_tensors()
             market_handles[i] = tensors["market_window_handle"]
             portfolio_vectors[i] = tensors["portfolio_vector"]
             order_summary_vectors[i] = tensors["order_summary_vector"]
             dones[i] = self._core_state.done
-            if include_trace:
-                trace_rows.append(
-                    self._build_trace_row(
-                        index=i,
-                        action_side_code=action_side_code,
-                        action_units=action_units,
-                        action_order_code=action_order_code,
-                        action_limit=action_limit,
-                        step_fills=step_fills,
-                        reward=float(rewards[i]),
-                        done=bool(dones[i]),
-                        observation=observation,
-                    )
+            # Trace rows are built whenever a client asked for them (include_trace)
+            # or a server-side STOCK_SIM_TRACE_JSONL sink is configured (N10) — the
+            # sink captures every step's trace regardless of what any one caller
+            # requested; only the include_trace branch ever reaches the response.
+            if include_trace or self._trace_sink is not None:
+                trace_row = self._build_trace_row(
+                    index=i,
+                    action_side_code=action_side_code,
+                    action_units=action_units,
+                    action_order_code=action_order_code,
+                    action_limit=action_limit,
+                    step_fills=step_fills,
+                    reward=float(rewards[i]),
+                    done=bool(dones[i]),
+                    observation=observation,
+                    filled_order_slot=filled_order_slot,
+                    exec_price=exec_price,
                 )
+                if include_trace:
+                    trace_rows.append(trace_row)
+                if self._trace_sink is not None:
+                    self._trace_sink.write(trace_row)
 
         return (
             {
@@ -297,16 +322,18 @@ class MarketEnv:
         self,
         action_row: NDArray[np_float64],
         random_draws: NDArray[np_float64],
-    ) -> tuple[int, float]:
+    ) -> tuple[int, float, int | None, float | None]:
         """Advance the core state by one encoded action row.
 
         Returns
         -------
-        tuple[int, float]
-            ``(fills, equity_delta)`` for the step; both zero when already done.
+        tuple[int, float, int | None, float | None]
+            ``(fills, equity_delta, filled_order_slot, exec_price)`` for the step;
+            all zero/``None`` when already done. The last two are the N9
+            observability fields — see :class:`stock_simulator.core.CoreStepOutput`.
         """
         if self._core_state.done:
-            return 0, 0.0
+            return 0, 0.0, None, None
         action_side_code, action_units, action_order_code, action_limit = action_row
         if self._cfg.use_numba:
             (
@@ -322,6 +349,8 @@ class MarketEnv:
                 next_order_ttl,
                 fills,
                 equity_delta,
+                fill_slot,
+                fill_exec_price,
             ) = step_core_jit(
                 t=self._core_state.t,
                 done=self._core_state.done,
@@ -361,7 +390,12 @@ class MarketEnv:
                 order_eligible_t=next_order_eligible_t,
                 order_ttl=next_order_ttl,
             )
-            return int(fills), float(equity_delta)
+            return (
+                int(fills),
+                float(equity_delta),
+                _fill_slot_from_jit(fill_slot),
+                _exec_price_from_jit(fill_exec_price),
+            )
         action = self._action_from_encoded_row(action_row)
         output = step_core(
             state=self._core_state,
@@ -371,7 +405,7 @@ class MarketEnv:
             random_draws=random_draws,
         )
         self._core_state = output.state
-        return output.fills, float(output.equity_delta)
+        return output.fills, float(output.equity_delta), output.filled_order_slot, output.exec_price
 
     def _build_trace_row(
         self,
@@ -385,6 +419,8 @@ class MarketEnv:
         reward: float,
         done: bool,
         observation: Observation,
+        filled_order_slot: int | None = None,
+        exec_price: float | None = None,
     ) -> StepTraceRow:
         """Build a :class:`StepTraceRow` from per-step values."""
         has_limit_price = not np_isnan(action_limit)
@@ -405,6 +441,9 @@ class MarketEnv:
             leverage=observation.leverage,
             open_orders=observation.open_orders,
             market_price=observation.price,
+            has_filled_order=filled_order_slot is not None,
+            filled_order_slot=filled_order_slot,
+            exec_price=exec_price,
         )
 
     def observe(self) -> Observation:

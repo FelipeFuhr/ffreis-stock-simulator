@@ -46,6 +46,18 @@ batched `step_many`.
   Each `RecordedStep` captures `episode_id, step, seed, side, order_type, units,
   limit_price, fills, equity, leverage, price`. The RL agent reads this for offline
   training, so the schema is a cross-repo contract — changing it is a breaking change.
+  `Recorder` is wired into the singular `step` call only, not `step_many`.
+- **Server-side trace sink** (`trace_writer.py`): set `STOCK_SIM_TRACE_JSONL` to a
+  file path and every `step_many` step's full `StepTraceRow` trace is appended to
+  that file as JSONL, regardless of any individual request's `include_trace`
+  flag. A debugging/verification aid, not a replacement for `Recorder` above —
+  see `trace_writer.py`'s module docstring.
+- **Trace fields** (`StepTraceRow`, `types.py`): `filled_order_slot`/`exec_price`
+  recover the actually-filled order's slot and real execution price — distinct
+  from the row's `limit_price`, which reflects the *submitted* action that step,
+  not necessarily the order that filled (an older queued limit order can fill on
+  a later step whose own submitted action was a `hold`). Both are `None`/absent
+  when no fill happened that step.
 - **Telemetry** (`telemetry.py`): OpenTelemetry spans plus Prometheus metrics around
   steps, orders, fills, and episode ends.
 
@@ -86,6 +98,9 @@ Run the HTTP service (the engine loads from environment configuration):
 ```bash
 export MARKET_DATA_CSV=/path/to/ohlcv.csv      # required when ENGINE_ENABLED=true
 export STOCK_SIM_CONFIG_YAML=/path/to/cfg.yaml # optional GameConfig overrides
+export STOCK_SIM_TRACE_JSONL=/path/to/trace.jsonl # optional: write every step's
+                                                # full trace to this file (debugging
+                                                # aid; see "Recording / replay" above)
 export HOST=0.0.0.0 PORT=8000                  # optional
 stock-simulator
 ```

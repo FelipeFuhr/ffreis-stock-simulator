@@ -88,6 +88,12 @@ message StepTraceRow {
   double leverage = 14;
   int64 open_orders = 15;
   double market_price = 16;
+  // N9: the actually-filled order's slot/execution price, distinct from the
+  // submitted action's limit_price above. has_filled_order=false (the zero
+  // value) means no order filled this step, mirroring has_seed/has_start_t.
+  bool has_filled_order = 17;
+  int64 filled_order_slot = 18;
+  double exec_price = 19;
 }
 
 message StepManyResponse {

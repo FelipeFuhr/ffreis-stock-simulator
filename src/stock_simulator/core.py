@@ -2,6 +2,8 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from math import inf as math_inf
+from math import isnan as math_isnan
+from math import nan as math_nan
 
 from numba import njit
 from numpy import array as np_array
@@ -46,9 +48,23 @@ class MarketArrays:
 
 @dataclass(frozen=True)
 class CoreStepOutput:
+    """Result of one core step.
+
+    ``filled_order_slot``/``exec_price`` are additive (N9) observability fields:
+    when at least one order filled this step they carry the *last* fill processed
+    in the match loop (slot index into the order arrays, and the real execution
+    price used for that trade's cash/units update) — not an aggregate over every
+    fill. At most two orders (one buy, one sell) can be simultaneously live per
+    :func:`_find_side_slot_or_free`, so "last" only loses information in the rare
+    case both fill on the same bar; ``fills`` still reports the true count. Both
+    are ``None`` when ``fills == 0``.
+    """
+
     state: CoreState
     fills: int
     equity_delta: float
+    filled_order_slot: int | None = None
+    exec_price: float | None = None
 
 
 def leverage_ratio(units: float, price: float, equity: float) -> float:
@@ -140,6 +156,26 @@ def settle_insolvency(portfolio: NDArray[np_float64], price: float) -> bool:
     return True
 
 
+# Sentinel values for "no fill this step" on the numba side, where @njit functions
+# cannot return Optional[int]/Optional[float]. The pure-Python match loop threads
+# real None straight through instead. `_fill_slot_from_jit`/`_exec_price_from_jit`
+# decode the sentinels back into Optional values at the Python wrapper boundary
+# (`step_core_numba`, `MarketEnv._advance_one_step`) so both engines expose the
+# same `int | None` / `float | None` contract on `CoreStepOutput`.
+_NO_FILL_SLOT = -1
+_NO_FILL_PRICE = math_nan
+
+
+def _fill_slot_from_jit(slot: int) -> int | None:
+    """Decode the njit "no fill" sentinel (-1) into an Optional slot index."""
+    return None if slot < 0 else int(slot)
+
+
+def _exec_price_from_jit(price: float) -> float | None:
+    """Decode the njit "no fill" sentinel (NaN) into an Optional execution price."""
+    return None if math_isnan(price) else float(price)
+
+
 def initial_core_state(initial_cash: float, max_orders: int, start_t: int = 0) -> CoreState:
     return CoreState(
         t=start_t,
@@ -169,7 +205,7 @@ def step_core(
     next_state = _copy_state(state)
 
     _apply_action(next_state, action, config)
-    fills = _match_orders(next_state, market_arrays, config, random_draws)
+    fills, filled_order_slot, exec_price = _match_orders(next_state, market_arrays, config, random_draws)
     # Solvency is checked twice per step, against both ways equity can be wiped out:
     # a fill on this bar, then the mark-to-market move into the next bar.
     insolvent_on_fill = settle_insolvency(next_state.portfolio, float(market_arrays.close[state.t]))
@@ -198,6 +234,8 @@ def step_core(
         state=advanced_state,
         fills=fills,
         equity_delta=next_equity - prev_equity,
+        filled_order_slot=filled_order_slot,
+        exec_price=exec_price,
     )
 
 
@@ -286,7 +324,13 @@ def step_core_jit(
     NDArray[np_int32],
     int,
     float,
+    int,
+    float,
 ]:
+    # The trailing (int, float) pair is the N9 fill-slot/exec-price sentinel pair —
+    # decoded back to Optional at the Python wrapper boundary by
+    # _fill_slot_from_jit/_exec_price_from_jit. Numba @njit cannot return
+    # Optional[int]/Optional[float], hence the -1/NaN sentinels here.
     if done:
         return (
             t,
@@ -301,6 +345,8 @@ def step_core_jit(
             order_ttl.copy(),
             0,
             0.0,
+            _NO_FILL_SLOT,
+            _NO_FILL_PRICE,
         )
 
     portfolio_next = portfolio.copy()
@@ -342,6 +388,8 @@ def step_core_jit(
     high = float(market_high[t])
     low = float(market_low[t])
     fills = 0
+    fill_slot = _NO_FILL_SLOT
+    fill_exec_price = _NO_FILL_PRICE
 
     for i in range(order_active_next.size):
         if order_active_next[i] == np_int8(0):
@@ -381,6 +429,8 @@ def step_core_jit(
             order_active_next[i] = np_int8(0)
             order_ttl_next[i] = np_int32(0)
             fills += 1
+            fill_slot = i
+            fill_exec_price = exec_price
         else:
             ttl = int(order_ttl_next[i]) - 1
             order_ttl_next[i] = np_int32(ttl)
@@ -413,6 +463,8 @@ def step_core_jit(
         order_ttl_next,
         fills,
         equity_delta,
+        fill_slot,
+        fill_exec_price,
     )
 
 
@@ -439,6 +491,8 @@ def step_core_numba(
         next_order_ttl,
         fills,
         equity_delta,
+        fill_slot,
+        fill_exec_price,
     ) = step_core_jit(
         t=state.t,
         done=state.done,
@@ -481,6 +535,8 @@ def step_core_numba(
         ),
         fills=fills,
         equity_delta=equity_delta,
+        filled_order_slot=_fill_slot_from_jit(fill_slot),
+        exec_price=_exec_price_from_jit(fill_exec_price),
     )
 
 
@@ -545,11 +601,22 @@ def _match_orders(
     market_arrays: MarketArrays,
     config: GameConfig,
     random_draws: NDArray[np_float64],
-) -> int:
+) -> tuple[int, int | None, float | None]:
+    """Match eligible orders against this bar and apply fills.
+
+    Returns
+    -------
+    tuple[int, int | None, float | None]
+        ``(fills, filled_order_slot, exec_price)``. The slot/price describe the
+        *last* fill processed this step (N9 observability fields threaded onto
+        :class:`StepTraceRow` by the caller); both are ``None`` when ``fills == 0``.
+    """
     open_price = float(market_arrays.open[state.t])
     high = float(market_arrays.high[state.t])
     low = float(market_arrays.low[state.t])
     fills = 0
+    filled_order_slot: int | None = None
+    last_exec_price: float | None = None
 
     for i in range(state.order_active.size):
         if state.order_active[i] == 0:
@@ -585,6 +652,8 @@ def _match_orders(
             state.order_active[i] = np_int8(0)
             state.order_ttl[i] = np_int32(0)
             fills += 1
+            filled_order_slot = i
+            last_exec_price = exec_price
             continue
 
         ttl = int(state.order_ttl[i]) - 1
@@ -593,7 +662,7 @@ def _match_orders(
             state.order_active[i] = np_int8(0)
             state.order_ttl[i] = np_int32(0)
 
-    return fills
+    return fills, filled_order_slot, last_exec_price
 
 
 def _execution_price(fill_price: float, signed_units: float, slippage_bps: float) -> float:

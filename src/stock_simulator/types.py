@@ -217,7 +217,17 @@ class EnvState:
 
 @dataclass(frozen=True)
 class StepTraceRow:
-    """Line-by-line execution trace row for one processed action."""
+    """Line-by-line execution trace row for one processed action.
+
+    ``has_filled_order``/``filled_order_slot``/``exec_price`` are additive (N9)
+    fields recovering the actually-filled order's real execution price —
+    distinct from ``limit_price``, which is the *submitted* action's requested
+    limit, not necessarily the price an older queued order filled at on this
+    step. ``has_filled_order`` mirrors the existing ``has_limit_price`` /
+    ``limit_price`` presence-flag convention; all three are falsy/``None`` when
+    ``fills == 0``, and describe the *last* fill processed this step when
+    ``fills > 0`` (see :class:`stock_simulator.core.CoreStepOutput`).
+    """
 
     index: int
     side_code: int
@@ -235,6 +245,9 @@ class StepTraceRow:
     leverage: float
     open_orders: int
     market_price: float
+    has_filled_order: bool = False
+    filled_order_slot: int | None = None
+    exec_price: float | None = None
 
     def to_serializable(self) -> SerializedStepTraceRow:
         """Convert trace row into JSON-serializable primitives."""
@@ -255,6 +268,9 @@ class StepTraceRow:
             "leverage": self.leverage,
             "open_orders": self.open_orders,
             "market_price": self.market_price,
+            "has_filled_order": self.has_filled_order,
+            "filled_order_slot": self.filled_order_slot,
+            "exec_price": self.exec_price,
         }
 
 
@@ -416,6 +432,9 @@ class StepTraceRowModel(BaseModel):
     leverage: float
     open_orders: int
     market_price: float
+    has_filled_order: bool = False
+    filled_order_slot: int | None = None
+    exec_price: float | None = None
 
     @classmethod
     def from_dataclass(cls, value: StepTraceRow) -> StepTraceRowModel:
@@ -437,6 +456,9 @@ class StepTraceRowModel(BaseModel):
             leverage=value.leverage,
             open_orders=value.open_orders,
             market_price=value.market_price,
+            has_filled_order=value.has_filled_order,
+            filled_order_slot=value.filled_order_slot,
+            exec_price=value.exec_price,
         )
 
 

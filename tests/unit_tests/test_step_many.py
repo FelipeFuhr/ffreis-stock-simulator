@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from collections.abc import Callable
 
+import pytest
 from numpy import asarray as np_asarray
 from numpy import bool_ as np_bool_
 from numpy import float64 as np_float64
@@ -107,3 +108,66 @@ def test_step_many_include_trace_returns_one_row_per_action(
     assert trace_rows[2].order_type_code == 1
     assert trace_rows[0].reward == float(rewards[0])
     assert trace_rows[-1].done == bool(dones[-1])
+
+
+@pytest.mark.parametrize("use_numba", [False, True], ids=["python", "numba"])
+def test_delayed_limit_fill_exec_price_matches_equity_delta_effect(
+    market_data_factory: Callable[..., MarketData],
+    encode_actions: Callable[[list[Action]], NDArray[np_float64]],
+    use_numba: bool,
+) -> None:
+    """N9: recover a delayed-fill limit order's real execution price from the
+    trace, and cross-check it against the real economic effect (not just presence
+    of a number). A buy limit is submitted at bar 0 but the price doesn't cross
+    it until bar 4 — several "hold" steps later — so the submitted action on the
+    filling step is itself a hold (its own ``limit_price`` is ``None``); before
+    N9 there was no way to recover what price the order actually filled at.
+    """
+    data = market_data_factory(close=[100.0, 100.0, 100.0, 100.0, 80.0, 80.0], spread=0.5)
+    cfg = GameConfig(
+        seed=1,
+        use_numba=use_numba,
+        initial_cash=1000.0,
+        max_leverage=10.0,
+        market_latency_bars=0,
+        fee_bps=0.0,
+        slippage_bps=0.0,
+        partial_fill_min=1.0,
+        partial_fill_max=1.0,
+    )
+    env = MarketEnv(data=data, cfg=cfg)
+    env.reset(seed=cfg.seed)
+
+    actions = [
+        Action(side="buy", units=10.0, order_type="limit", limit_price=85.0),
+        Action(side="hold"),
+        Action(side="hold"),
+        Action(side="hold"),
+        Action(side="hold"),
+    ]
+    encoded = encode_actions(actions)
+    _, rewards, _, trace_rows = env.step_many(encoded, include_trace=True)
+
+    assert len(trace_rows) == 5
+    for row in trace_rows[:4]:
+        assert row.fills == 0
+        assert row.filled_order_slot is None
+        assert row.exec_price is None
+
+    fill_row = trace_rows[4]
+    assert fill_row.fills == 1
+    assert fill_row.filled_order_slot == 0
+    # The submitted action *this* step was "hold" — limit_price alone cannot
+    # recover the price the queued order actually filled at.
+    assert fill_row.limit_price is None
+    assert fill_row.exec_price is not None
+    exec_price = fill_row.exec_price
+    assert exec_price == pytest.approx(85.0)
+
+    # Cross-check exec_price against the real economic effect: with zero
+    # fee/slippage, this step's reward (equity_delta) is exactly the newly
+    # opened position's unrealized mark, computed from exec_price — not the
+    # submitted limit_price (which is unavailable) and not an arbitrary number.
+    expected_reward = 10.0 * (80.0 - exec_price)
+    assert float(rewards[4]) == pytest.approx(expected_reward)
+    assert fill_row.reward == pytest.approx(expected_reward)

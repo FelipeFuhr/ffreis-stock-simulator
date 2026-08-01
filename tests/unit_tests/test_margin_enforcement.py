@@ -341,6 +341,11 @@ class TestNumbaParity:
         assert py_out.fills == nb_out.fills
         assert py_out.state.portfolio.tolist() == nb_out.state.portfolio.tolist()
         assert py_out.equity_delta == nb_out.equity_delta
+        # N9: the fill-slot/exec-price observability fields must also match
+        # bit-for-bit — the numba mirror decodes its -1/NaN sentinels back to the
+        # same Optional values the pure-Python match loop produces directly.
+        assert py_out.filled_order_slot == nb_out.filled_order_slot
+        assert py_out.exec_price == nb_out.exec_price
 
     def test_clipped_fill_is_identical_in_both_engines(self) -> None:
         cfg = _cfg(max_leverage=2.0, fee_bps=10.0, slippage_bps=5.0)
@@ -377,6 +382,41 @@ class TestNumbaParity:
             step_core(_state(cash=1000.0), action, market, cfg, _FULL_FILL),
             step_core_numba(_state(cash=1000.0), action, market, cfg, _FULL_FILL),
         )
+
+    def test_delayed_limit_fill_slot_and_price_are_identical_in_both_engines(self) -> None:
+        # N9: a limit order that does NOT fill on the bar it's submitted (low stays
+        # above the buy limit for several bars) and only fills once the price drops
+        # through it several steps later. Both engines must report the identical
+        # fill slot and execution price on the filling step, not just identical
+        # portfolio/equity_delta.
+        closes = [100.0, 100.0, 100.0, 100.0, 80.0, 80.0]
+        market = _market(closes, spread=0.5)
+        cfg = _cfg(max_leverage=10.0)
+        submit = Action(side="buy", units=10.0, order_type="limit", limit_price=85.0)
+        hold = Action(side="hold")
+
+        def _run(step_fn: Callable[..., CoreStepOutput]) -> list[CoreStepOutput]:
+            # bar t=0: submit (no fill, low stays above the limit). bars t=1..3:
+            # hold (still no fill). bar t=4: hold submitted, but the OLD order
+            # fills once close/low drops through the limit price.
+            outputs = [step_fn(_state(cash=1000.0), submit, market, cfg, _FULL_FILL)]
+            for _ in range(4):
+                outputs.append(step_fn(outputs[-1].state, hold, market, cfg, _FULL_FILL))
+            return outputs
+
+        py_outputs = _run(step_core)
+        nb_outputs = _run(step_core_numba)
+
+        for i in range(4):
+            self._assert_identical(py_outputs[i], nb_outputs[i])
+            assert py_outputs[i].fills == 0
+            assert py_outputs[i].filled_order_slot is None
+            assert py_outputs[i].exec_price is None
+
+        self._assert_identical(py_outputs[4], nb_outputs[4])
+        assert py_outputs[4].fills == 1
+        assert py_outputs[4].filled_order_slot == 0
+        assert py_outputs[4].exec_price == pytest.approx(85.0)
 
     def test_mark_to_market_liquidation_is_identical_in_both_engines(
         self,

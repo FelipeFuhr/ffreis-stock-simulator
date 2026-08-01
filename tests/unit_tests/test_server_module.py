@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass, field
+from pathlib import Path
 from typing import cast
 
 from fastapi.testclient import TestClient
@@ -12,12 +13,24 @@ from pytest import MonkeyPatch
 from stock_simulator import server as server_mod
 from stock_simulator.types import EnvState, MarketWindowViewHandle, Observation, StepTraceRow
 
+_TINY_MARKET_CSV = (
+    "timestamp,open,high,low,close,volume\n"
+    "2024-01-01T00:00:00,100.0,100.5,99.5,100.0,10000\n"
+    "2024-01-01T01:00:00,100.0,100.5,99.5,100.0,10000\n"
+    "2024-01-01T02:00:00,100.0,100.5,99.5,100.0,10000\n"
+    "2024-01-01T03:00:00,100.0,100.5,99.5,100.0,10000\n"
+)
+
 
 @dataclass
 class _FakeEnv:
     raise_on_step: bool = False
     raise_on_reset: bool = False
     last_reset_kwargs: dict[str, object] = field(default_factory=dict)
+    closed: bool = False
+
+    def close(self) -> None:
+        self.closed = True
 
     def reset(self, seed: int | None = None, start_t: int = 0) -> EnvState:
         self.last_reset_kwargs = {"seed": seed, "start_t": start_t}
@@ -72,6 +85,9 @@ class _FakeEnv:
                     leverage=0.2,
                     open_orders=1,
                     market_price=102.0,
+                    has_filled_order=True,
+                    filled_order_slot=0,
+                    exec_price=102.0,
                 ),
             )
             if include_trace
@@ -94,6 +110,44 @@ def test_load_engine_requires_market_data_env(monkeypatch: MonkeyPatch) -> None:
         raise AssertionError("expected ValueError for missing MARKET_DATA_CSV")
     except ValueError as exc:
         assert "MARKET_DATA_CSV must be set" in str(exc)
+
+
+def test_load_engine_wires_trace_sink_when_env_var_set(monkeypatch: MonkeyPatch, tmp_path: Path) -> None:
+    """N10: STOCK_SIM_TRACE_JSONL makes _load_engine's env write every step's
+    trace to the given path, even though this test never sets include_trace.
+    """
+    market_csv = tmp_path / "market.csv"
+    market_csv.write_text(_TINY_MARKET_CSV, encoding="utf-8")
+    trace_path = tmp_path / "trace.jsonl"
+    monkeypatch.setenv("MARKET_DATA_CSV", str(market_csv))
+    monkeypatch.setenv("STOCK_SIM_TRACE_JSONL", str(trace_path))
+
+    env = server_mod._load_engine()
+    try:
+        env.reset(seed=1)
+        actions = np_asarray([[0.0, 0.0, 0.0, float("nan")]], dtype=np_float64)  # a single "hold"
+        env.step_many(actions)  # include_trace defaults to False on this call
+    finally:
+        env.close()
+
+    lines = trace_path.read_text(encoding="utf-8").splitlines()
+    assert len(lines) == 1
+
+
+def test_load_engine_leaves_trace_sink_unset_by_default(monkeypatch: MonkeyPatch, tmp_path: Path) -> None:
+    """Unsetting STOCK_SIM_TRACE_JSONL leaves default behavior unchanged: no file."""
+    market_csv = tmp_path / "market.csv"
+    market_csv.write_text(_TINY_MARKET_CSV, encoding="utf-8")
+    trace_path = tmp_path / "trace.jsonl"
+    monkeypatch.setenv("MARKET_DATA_CSV", str(market_csv))
+    monkeypatch.delenv("STOCK_SIM_TRACE_JSONL", raising=False)
+
+    env = server_mod._load_engine()
+    env.reset(seed=1)
+    actions = np_asarray([[0.0, 0.0, 0.0, float("nan")]], dtype=np_float64)
+    env.step_many(actions)
+
+    assert not trace_path.exists()
 
 
 def test_create_app_readyz_when_engine_disabled(monkeypatch: MonkeyPatch) -> None:
@@ -185,7 +239,12 @@ def test_create_app_action_routes_with_loaded_engine(monkeypatch: MonkeyPatch) -
             },
         )
         assert with_trace.status_code == 200
-        assert len(with_trace.json()["trace"]) == 1
+        trace_payload = with_trace.json()["trace"]
+        assert len(trace_payload) == 1
+        # N9: the actually-filled order's slot/price ride alongside the
+        # submitted action's own (here-empty) limit_price field.
+        assert trace_payload[0]["filled_order_slot"] == 0
+        assert trace_payload[0]["exec_price"] == 102.0
 
 
 def test_create_app_reset_default_start_t_is_zero(monkeypatch: MonkeyPatch) -> None:

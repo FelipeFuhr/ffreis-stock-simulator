@@ -6,6 +6,7 @@ from .orders import OrderSummary
 from .portal import MarketPortal
 from .portfolio import PortfolioSnapshot
 from .recorder import InMemoryRecorder, NullRecorder, ParquetRecorder, Recorder
+from .trace_writer import TraceJsonlWriter
 from .types import (
     Action,
     ActionModel,
@@ -42,6 +43,7 @@ __all__ = [
     "NullRecorder",
     "InMemoryRecorder",
     "ParquetRecorder",
+    "TraceJsonlWriter",
     "ExecutionSummary",
     "StepResult",
     "StepResultModel",

@@ -82,6 +82,9 @@ class _StepTraceRow:
     leverage: float
     open_orders: int
     market_price: float
+    has_filled_order: bool = False
+    filled_order_slot: int = 0
+    exec_price: float = 0.0
 
 
 @dataclass
@@ -176,6 +179,9 @@ class _FakeStub:
                     leverage=0.3,
                     open_orders=2,
                     market_price=102.0,
+                    has_filled_order=True,
+                    filled_order_slot=0,
+                    exec_price=102.0,
                 )
             )
         return _StepManyReply(
@@ -267,6 +273,8 @@ def test_client_methods_roundtrip_with_fake_stub(monkeypatch: MonkeyPatch) -> No
     assert len(trace_rows) == 1
     assert trace_rows[0]["fills"] == 1
     assert trace_rows[0]["requested_units"] == pytest_approx(1.0)
+    assert trace_rows[0]["filled_order_slot"] == 0
+    assert trace_rows[0]["exec_price"] == pytest_approx(102.0)
 
     client.close()
     assert channel.closed is True
