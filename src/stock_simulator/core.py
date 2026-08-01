@@ -50,9 +50,9 @@ class CoreStepOutput:
     equity_delta: float
 
 
-def initial_core_state(initial_cash: float, max_orders: int) -> CoreState:
+def initial_core_state(initial_cash: float, max_orders: int, start_t: int = 0) -> CoreState:
     return CoreState(
-        t=0,
+        t=start_t,
         done=False,
         portfolio=np_array([initial_cash, 0.0], dtype=np_float64),
         order_active=np_zeros(max_orders, dtype=np_int8),

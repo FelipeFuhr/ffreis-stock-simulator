@@ -100,6 +100,8 @@ class _FakeAction:
 class _FakeResetRequest:
     has_seed: bool
     seed: int
+    has_start_t: bool = False
+    start_t: int = 0
 
 
 @dataclass
@@ -120,14 +122,19 @@ class _FakePb2:
 
 
 class _FakeEnv:
-    def __init__(self, *, raise_on_step: bool = False) -> None:
+    def __init__(self, *, raise_on_step: bool = False, raise_on_reset: bool = False) -> None:
         self.raise_on_step = raise_on_step
+        self.raise_on_reset = raise_on_reset
         self.last_seed: int | None = None
+        self.last_start_t: int = 0
 
-    def reset(self, seed: int | None = None) -> EnvState:
+    def reset(self, seed: int | None = None, start_t: int = 0) -> EnvState:
         self.last_seed = seed
+        self.last_start_t = start_t
+        if self.raise_on_reset:
+            raise ValueError(f"start_t must satisfy 0 <= start_t < 10 (market has 10 bars); got {start_t}")
         return EnvState(
-            t=0,
+            t=start_t,
             cash=1000.0,
             units=0.0,
             equity=1000.0,
@@ -267,13 +274,14 @@ def test_engine_grpc_service_methods(monkeypatch: MonkeyPatch) -> None:
         service.Reset(
             cast(
                 grpc_server_mod._RequestWithSeed,
-                _FakeResetRequest(has_seed=True, seed=77),
+                _FakeResetRequest(has_seed=True, seed=77, has_start_t=True, start_t=150),
             ),
             _FakeContext(),
         ),
     )
-    assert reset.state.t == 0
+    assert reset.state.t == 150
     assert env.last_seed == 77
+    assert env.last_start_t == 150
 
     observe = cast(_FakeObserveResponse, service.Observe(object(), _FakeContext()))
     assert observe.observation.market_window_handle.t == 4
@@ -292,6 +300,53 @@ def test_engine_grpc_service_methods(monkeypatch: MonkeyPatch) -> None:
     assert step_many.rewards == [5.5]
     assert step_many.dones == [False]
     assert len(step_many.trace) == 1
+
+
+def test_engine_grpc_service_reset_omitted_start_t_defaults_to_zero(monkeypatch: MonkeyPatch) -> None:
+    monkeypatch.setattr(grpc_server_mod, "engine_pb2", _FakePb2())
+    env = _FakeEnv()
+    service = grpc_server_mod.EngineGrpcService(cast(MarketEnv, env))
+
+    reset = cast(
+        _FakeResetResponse,
+        service.Reset(
+            cast(grpc_server_mod._RequestWithSeed, _FakeResetRequest(has_seed=True, seed=5)),
+            _FakeContext(),
+        ),
+    )
+    assert reset.state.t == 0
+    assert env.last_start_t == 0
+
+
+def test_engine_grpc_service_reset_error_path_aborts_context(monkeypatch: MonkeyPatch) -> None:
+    monkeypatch.setattr(grpc_server_mod, "engine_pb2", _FakePb2())
+    env = _FakeEnv(raise_on_reset=True)
+    service = grpc_server_mod.EngineGrpcService(cast(MarketEnv, env))
+    try:
+        service.Reset(
+            cast(
+                grpc_server_mod._RequestWithSeed,
+                _FakeResetRequest(has_seed=False, seed=0, has_start_t=True, start_t=999),
+            ),
+            _FakeContext(),
+        )
+        raise AssertionError("expected Reset to raise")
+    except ValueError as exc:
+        assert "start_t" in str(exc)
+
+
+def test_engine_grpc_service_reset_error_path_reraises_without_context(monkeypatch: MonkeyPatch) -> None:
+    monkeypatch.setattr(grpc_server_mod, "engine_pb2", _FakePb2())
+    env = _FakeEnv(raise_on_reset=True)
+    service = grpc_server_mod.EngineGrpcService(cast(MarketEnv, env))
+    try:
+        service.Reset(
+            cast(grpc_server_mod._RequestWithSeed, _FakeResetRequest(has_seed=False, seed=0)),
+            None,
+        )
+        raise AssertionError("expected Reset to raise")
+    except ValueError as exc:
+        assert "start_t" in str(exc)
 
 
 def test_engine_grpc_service_step_many_error_path(monkeypatch: MonkeyPatch) -> None:

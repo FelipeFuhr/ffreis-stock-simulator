@@ -64,6 +64,33 @@ def test_env_market_window_history_slice_matches_source() -> None:
     assert content.close == ()
 
 
+def test_env_market_window_warmup_at_nonzero_start_t() -> None:
+    """The F1 fix: reset(start_t=2000) must let a full 1500-bar warm-up fetch
+    return real, non-degenerate history — not the 1-bar sliver a hardcoded
+    t=0 start always produced.
+    """
+    n = 2_500
+    data = _market_data(n=n)
+    env = MarketEnv(data=data, cfg=GameConfig(observation_window=64, use_numba=False))
+    env.reset(seed=1, start_t=2000)
+
+    # Default window (mirrors the observation) ends at bar 2000.
+    default_window = env.market_window()
+    assert default_window.t == 2000
+    assert default_window.end == 2001
+
+    # Full 1500-bar warm-up fetch, matching the RL agent's min(1500, t+1) call.
+    warmup = env.market_window(start=2000 - 1499, end=2001)
+    assert warmup.start == 501
+    assert warmup.end == 2001
+    assert len(warmup.close) == 1500
+    assert warmup.close == pytest.approx(data.close[501:2001].tolist())
+    assert warmup.volume == pytest.approx(data.volume[501:2001].tolist())
+    # Non-degenerate: real, distinct per-bar values — not a 1-bar sliver
+    # repeated/padded to look like a window.
+    assert len(set(warmup.close)) > 1
+
+
 def _client_with_engine(monkeypatch: MonkeyPatch, env: MarketEnv) -> TestClient:
     monkeypatch.setenv("ENGINE_ENABLED", "true")
     monkeypatch.setattr(server_mod, "_load_engine", lambda: env)
@@ -122,6 +149,22 @@ def test_market_window_endpoint_negative_start_clamps(monkeypatch: MonkeyPatch) 
         assert payload["start"] == 0
         assert payload["end"] == 3
         assert payload["rows"]["close"] == pytest.approx(data.close[0:3].tolist())
+
+
+def test_reset_endpoint_start_t_enables_full_warmup_fetch(monkeypatch: MonkeyPatch) -> None:
+    n = 2_500
+    data = _market_data(n=n)
+    env = MarketEnv(data=data, cfg=GameConfig(observation_window=64, use_numba=False))
+    with _client_with_engine(monkeypatch, env) as client:
+        reset = client.post("/v1/reset", json={"seed": 5, "start_t": 2000})
+        assert reset.status_code == 200
+        assert reset.json()["state"]["t"] == 2000
+
+        warmup = client.get("/v1/market_window", params={"start": 501, "end": 2001}).json()
+        assert warmup["start"] == 501
+        assert warmup["end"] == 2001
+        assert len(warmup["rows"]["close"]) == 1500
+        assert warmup["rows"]["close"] == pytest.approx(data.close[501:2001].tolist())
 
 
 def test_market_window_endpoint_requires_engine(monkeypatch: MonkeyPatch) -> None:

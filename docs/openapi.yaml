@@ -350,6 +350,11 @@ components:
           - type: integer
           - type: 'null'
           title: Seed
+        start_t:
+          anyOf:
+          - type: integer
+          - type: 'null'
+          title: Start T
       additionalProperties: false
       type: object
       title: ResetRequest

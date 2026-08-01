@@ -77,19 +77,36 @@ class MarketEnv:
         self._telemetry.set_config_hash(self._config_hash)
         self._recorder = recorder if recorder is not None else NullRecorder()
 
-    def reset(self, seed: int | None = None) -> EnvState:
+    def reset(self, seed: int | None = None, start_t: int = 0) -> EnvState:
         """Reset the environment and return the initial state.
 
         Parameters
         ----------
         seed
             Optional seed for deterministic replay.
+        start_t
+            Bar index to start the episode at. Defaults to ``0``, matching the
+            prior always-zero behavior. Lets a caller begin an episode after
+            enough history has accumulated for indicator warm-up (see
+            :meth:`market_window`) or run walk-forward training over different
+            slices of the same loaded market data. ``reset(seed=S,
+            start_t=T)`` is deterministic: calling it twice with the same
+            ``(seed, start_t)`` pair produces byte-identical episodes.
 
         Returns
         -------
         EnvState
             Initial state snapshot.
+
+        Raises
+        ------
+        ValueError
+            If ``start_t`` is outside ``[0, n)``, where ``n`` is the number of
+            loaded market bars.
         """
+        n = self._market_arrays.n
+        if not 0 <= start_t < n:
+            raise ValueError(f"start_t must satisfy 0 <= start_t < {n} (market has {n} bars); got {start_t}")
         actual_seed: int
         if seed is not None:
             self._rng = default_rng(seed)
@@ -100,6 +117,7 @@ class MarketEnv:
         self._core_state = initial_core_state(
             initial_cash=self._cfg.initial_cash,
             max_orders=self._cfg.max_open_orders,
+            start_t=start_t,
         )
         self._recorder.start_episode(actual_seed)
         return self._to_env_state(self._core_state)

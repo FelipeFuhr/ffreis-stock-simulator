@@ -74,6 +74,8 @@ class _StepManyRequestLike(Protocol):
 class _ResetRequestLike(_MessageTypeLike, Protocol):
     has_seed: bool
     seed: int
+    has_start_t: bool
+    start_t: int
 
 
 class _ObserveRequestLike(_MessageTypeLike, Protocol):
@@ -99,7 +101,14 @@ class _FactoryStepManyRequest(Protocol):
 
 
 class _FactoryResetRequest(Protocol):
-    def __call__(self, *, has_seed: bool, seed: int) -> _ResetRequestLike: ...
+    def __call__(
+        self,
+        *,
+        has_seed: bool,
+        seed: int,
+        has_start_t: bool = False,
+        start_t: int = 0,
+    ) -> _ResetRequestLike: ...
 
 
 class _FactoryObserveRequest(Protocol):
@@ -561,3 +570,66 @@ def test_error_parity_for_invalid_order_type_code(
 
     assert "invalid order_type code" in direct_msg
     assert "invalid order_type code" in grpc_msg
+
+
+def test_grpc_reset_start_t_matches_env_behavior(
+    market_data_factory: Callable[..., MarketData],
+) -> None:
+    """gRPC ResetRequest.has_start_t/start_t must reset to the same bar as the
+    direct engine call — F1's start_t fix is not HTTP-only.
+    """
+    data = market_data_factory(n=256, slope=0.15, spread=0.2, volume=15_000.0)
+    cfg = GameConfig(seed=17, use_numba=False)
+
+    env_direct = MarketEnv(data=data, cfg=cfg)
+    env_grpc = MarketEnv(data=data, cfg=cfg)
+    grpc_service = cast(_EngineGrpcServiceLike, EngineGrpcService(env_grpc))
+
+    direct_state = env_direct.reset(seed=17, start_t=150)
+    grpc_state = grpc_service.Reset(
+        engine_pb2.ResetRequest(has_seed=True, seed=17, has_start_t=True, start_t=150),
+        None,
+    ).state
+    assert direct_state.t == grpc_state.t == 150
+    assert direct_state.cash == grpc_state.cash
+    assert direct_state.equity == grpc_state.equity
+    assert direct_state.done == grpc_state.done
+
+
+def test_grpc_reset_omitted_start_t_defaults_to_zero(
+    market_data_factory: Callable[..., MarketData],
+) -> None:
+    data = market_data_factory(n=64, slope=0.1, spread=0.2, volume=10_000.0)
+    cfg = GameConfig(seed=3, use_numba=False)
+    env_grpc = MarketEnv(data=data, cfg=cfg)
+    grpc_service = cast(_EngineGrpcServiceLike, EngineGrpcService(env_grpc))
+
+    grpc_state = grpc_service.Reset(engine_pb2.ResetRequest(has_seed=True, seed=3), None).state
+    assert grpc_state.t == 0
+
+
+def test_grpc_reset_error_parity_for_invalid_start_t(
+    market_data_factory: Callable[..., MarketData],
+) -> None:
+    data = market_data_factory(n=64, slope=0.1, spread=0.2, volume=10_000.0)
+    cfg = GameConfig(seed=9, use_numba=False)
+    env_direct = MarketEnv(data=data, cfg=cfg)
+    env_grpc = MarketEnv(data=data, cfg=cfg)
+    grpc_service = cast(_EngineGrpcServiceLike, EngineGrpcService(env_grpc))
+
+    request = engine_pb2.ResetRequest(has_seed=True, seed=9, has_start_t=True, start_t=999)
+
+    try:
+        env_direct.reset(seed=9, start_t=999)
+        raise AssertionError("direct env did not raise")
+    except ValueError as exc_direct:
+        direct_msg = str(exc_direct)
+
+    try:
+        grpc_service.Reset(request, None)
+        raise AssertionError("grpc service did not raise")
+    except ValueError as exc_grpc:
+        grpc_msg = str(exc_grpc)
+
+    assert "start_t" in direct_msg
+    assert "start_t" in grpc_msg

@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from typing import cast
 
 from fastapi.testclient import TestClient
@@ -16,11 +16,15 @@ from stock_simulator.types import EnvState, MarketWindowViewHandle, Observation,
 @dataclass
 class _FakeEnv:
     raise_on_step: bool = False
+    raise_on_reset: bool = False
+    last_reset_kwargs: dict[str, object] = field(default_factory=dict)
 
-    def reset(self, seed: int | None = None) -> EnvState:
-        _ = seed
+    def reset(self, seed: int | None = None, start_t: int = 0) -> EnvState:
+        self.last_reset_kwargs = {"seed": seed, "start_t": start_t}
+        if self.raise_on_reset:
+            raise ValueError(f"start_t must satisfy 0 <= start_t < 10 (market has 10 bars); got {start_t}")
         return EnvState(
-            t=0,
+            t=start_t,
             cash=1000.0,
             units=0.0,
             equity=1000.0,
@@ -182,6 +186,43 @@ def test_create_app_action_routes_with_loaded_engine(monkeypatch: MonkeyPatch) -
         )
         assert with_trace.status_code == 200
         assert len(with_trace.json()["trace"]) == 1
+
+
+def test_create_app_reset_default_start_t_is_zero(monkeypatch: MonkeyPatch) -> None:
+    monkeypatch.setenv("ENGINE_ENABLED", "true")
+    fake_env = _FakeEnv()
+    monkeypatch.setattr(server_mod, "_load_engine", lambda: fake_env)
+    app = server_mod.create_app()
+
+    with TestClient(app) as client:
+        reset = client.post("/v1/reset", json={"seed": 7})
+        assert reset.status_code == 200
+        assert reset.json()["state"]["t"] == 0
+        assert fake_env.last_reset_kwargs == {"seed": 7, "start_t": 0}
+
+
+def test_create_app_reset_passes_start_t_to_engine(monkeypatch: MonkeyPatch) -> None:
+    monkeypatch.setenv("ENGINE_ENABLED", "true")
+    fake_env = _FakeEnv()
+    monkeypatch.setattr(server_mod, "_load_engine", lambda: fake_env)
+    app = server_mod.create_app()
+
+    with TestClient(app) as client:
+        reset = client.post("/v1/reset", json={"seed": 7, "start_t": 2000})
+        assert reset.status_code == 200
+        assert reset.json()["state"]["t"] == 2000
+        assert fake_env.last_reset_kwargs == {"seed": 7, "start_t": 2000}
+
+
+def test_create_app_reset_maps_invalid_start_t_to_http_400(monkeypatch: MonkeyPatch) -> None:
+    monkeypatch.setenv("ENGINE_ENABLED", "true")
+    monkeypatch.setattr(server_mod, "_load_engine", lambda: _FakeEnv(raise_on_reset=True))
+    app = server_mod.create_app()
+
+    with TestClient(app) as client:
+        response = client.post("/v1/reset", json={"start_t": 999})
+        assert response.status_code == 400
+        assert "start_t" in response.json()["detail"]
 
 
 def test_create_app_step_many_maps_value_error_to_http_400(monkeypatch: MonkeyPatch) -> None:
