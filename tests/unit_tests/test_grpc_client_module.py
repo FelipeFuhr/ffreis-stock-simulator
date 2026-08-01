@@ -97,6 +97,8 @@ class _EncodedAction:
 class _ResetRequest:
     has_seed: bool
     seed: int
+    has_start_t: bool = False
+    start_t: int = 0
 
 
 @dataclass
@@ -130,9 +132,10 @@ class _FakeStub:
             seed_cash = float(request.seed)
         else:
             seed_cash = 0.0
+        start_t = request.start_t if request.has_start_t else 0
         return _ResetReply(
             state=_State(
-                t=0,
+                t=start_t,
                 cash=seed_cash,
                 units=1.0,
                 equity=seed_cash + 1.0,
@@ -238,6 +241,7 @@ def test_client_methods_roundtrip_with_fake_stub(monkeypatch: MonkeyPatch) -> No
     reset_state = client.reset(seed=123)
     assert reset_state["cash"] == pytest_approx(123.0)
     assert reset_state["open_orders"] == 2
+    assert reset_state["t"] == 0  # start_t omitted -> defaults to bar 0
 
     observed = client.observe()
     market = observed["market_window_handle"]
@@ -266,3 +270,21 @@ def test_client_methods_roundtrip_with_fake_stub(monkeypatch: MonkeyPatch) -> No
 
     client.close()
     assert channel.closed is True
+
+
+def test_client_reset_threads_start_t_to_request(monkeypatch: MonkeyPatch) -> None:
+    channel = _FakeChannel()
+    stub = _FakeStub()
+
+    monkeypatch.setattr(client_mod, "engine_pb2", _Pb2())
+    monkeypatch.setattr(client_mod, "engine_pb2_grpc", _Pb2Grpc(stub))
+    monkeypatch.setattr(client_mod, "grpc_insecure_channel", lambda _target: channel)
+
+    client = client_mod.EngineGrpcClient(target="127.0.0.1:50051")
+
+    reset_state = client.reset(seed=7, start_t=2000)
+    assert reset_state["t"] == 2000
+
+    # Explicit start_t=None (the default) still resolves to bar 0.
+    reset_state_default = client.reset(seed=7)
+    assert reset_state_default["t"] == 0

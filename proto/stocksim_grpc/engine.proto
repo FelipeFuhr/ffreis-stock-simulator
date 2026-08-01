@@ -18,6 +18,10 @@ message PingResponse {
 message ResetRequest {
   bool has_seed = 1;
   int64 seed = 2;
+  // Bar index to start the episode at. has_start_t=false (the zero value)
+  // means "start at bar 0", matching the prior always-zero behavior.
+  bool has_start_t = 3;
+  int64 start_t = 4;
 }
 
 message EnvState {

@@ -48,7 +48,14 @@ class _PingRequestFactory(Protocol):
 
 
 class _ResetRequestFactory(Protocol):
-    def __call__(self, *, has_seed: bool, seed: int) -> ProtoMessage: ...
+    def __call__(
+        self,
+        *,
+        has_seed: bool,
+        seed: int,
+        has_start_t: bool,
+        start_t: int,
+    ) -> ProtoMessage: ...
 
 
 class _ObserveRequestFactory(Protocol):
@@ -187,9 +194,14 @@ class EngineGrpcClient:
         response = self._stub.Ping(pb2.PingRequest())
         return str(response.status)
 
-    def reset(self, seed: int | None = None) -> dict[str, float | int | bool]:
+    def reset(self, seed: int | None = None, start_t: int | None = None) -> dict[str, float | int | bool]:
         pb2 = _require_engine_pb2()
-        request = pb2.ResetRequest(has_seed=seed is not None, seed=int(seed or 0))
+        request = pb2.ResetRequest(
+            has_seed=seed is not None,
+            seed=int(seed or 0),
+            has_start_t=start_t is not None,
+            start_t=int(start_t or 0),
+        )
         response = self._stub.Reset(request)
         state = response.state
         return {

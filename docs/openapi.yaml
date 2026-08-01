@@ -60,6 +60,40 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/ObserveResponse'
+  /v1/market_window:
+    get:
+      summary: Market Window
+      operationId: market_window_v1_market_window_get
+      parameters:
+      - name: start
+        in: query
+        required: false
+        schema:
+          anyOf:
+          - type: integer
+          - type: 'null'
+          title: Start
+      - name: end
+        in: query
+        required: false
+        schema:
+          anyOf:
+          - type: integer
+          - type: 'null'
+          title: End
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/MarketWindowContentModel'
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
   /v1/step_many:
     post:
       summary: Step Many
@@ -169,6 +203,65 @@ components:
       - status
       title: HealthzResponse
       description: Liveness response payload.
+    MarketWindowContentModel:
+      properties:
+        start:
+          type: integer
+          title: Start
+        end:
+          type: integer
+          title: End
+        t:
+          type: integer
+          title: T
+        rows:
+          $ref: '#/components/schemas/MarketWindowRowsModel'
+      additionalProperties: false
+      type: object
+      required:
+      - start
+      - end
+      - t
+      - rows
+      title: MarketWindowContentModel
+      description: Pydantic transport model for :class:`MarketWindowContent`.
+    MarketWindowRowsModel:
+      properties:
+        open:
+          items:
+            type: number
+          type: array
+          title: Open
+        high:
+          items:
+            type: number
+          type: array
+          title: High
+        low:
+          items:
+            type: number
+          type: array
+          title: Low
+        close:
+          items:
+            type: number
+          type: array
+          title: Close
+        volume:
+          items:
+            type: number
+          type: array
+          title: Volume
+      additionalProperties: false
+      type: object
+      required:
+      - open
+      - high
+      - low
+      - close
+      - volume
+      title: MarketWindowRowsModel
+      description: Per-bar OHLCV column arrays for a market window.
     MarketWindowViewHandleModel:
       properties:
         start:
@@ -257,6 +350,11 @@ components:
           - type: integer
           - type: 'null'
           title: Seed
+        start_t:
+          anyOf:
+          - type: integer
+          - type: 'null'
+          title: Start T
       additionalProperties: false
       type: object
       title: ResetRequest

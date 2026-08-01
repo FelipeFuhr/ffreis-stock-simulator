@@ -15,7 +15,14 @@ from pydantic import BaseModel, ConfigDict
 from .config import GameConfig
 from .data import MarketData
 from .env import MarketEnv
-from .types import EnvStateModel, MarketWindowViewHandleModel, ObservationModel, StepTraceRowModel
+from .types import (
+    EnvState,
+    EnvStateModel,
+    MarketWindowContentModel,
+    MarketWindowViewHandleModel,
+    ObservationModel,
+    StepTraceRowModel,
+)
 
 if TYPE_CHECKING:
     from fastapi import FastAPI
@@ -93,6 +100,10 @@ class ResetRequest(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
     seed: int | None = None
+    # Optional bar index to start the episode at; None preserves the prior
+    # always-zero behavior for existing callers. Mirrored on the gRPC side by
+    # ResetRequest.has_start_t/start_t (see stock_simulator/grpc/server.py:Reset).
+    start_t: int | None = None
 
 
 class ResetResponse(BaseModel):
@@ -165,10 +176,29 @@ def _load_engine() -> MarketEnv:
     market_data_csv = os_getenv("MARKET_DATA_CSV")
     if not market_data_csv:
         raise ValueError("MARKET_DATA_CSV must be set when ENGINE_ENABLED=true")
-    market_data = MarketData.from_csv(market_data_csv)
+    if market_data_csv.endswith(".parquet"):
+        market_data = MarketData.from_parquet(market_data_csv)
+    else:
+        market_data = MarketData.from_csv(market_data_csv)
     config_yaml = os_getenv("STOCK_SIM_CONFIG_YAML")
     config = GameConfig.load(yaml_path=config_yaml)
     return MarketEnv(data=market_data, cfg=config)
+
+
+# scan-fix(sonar:S3776): extracted out of the /v1/reset route closure — inlining
+# the try/except pushed create_app's cognitive complexity to 16/15.
+def _perform_reset(
+    env: MarketEnv,
+    payload: ResetRequest,
+    http_exception_cls: _HTTPExceptionFactory,
+    bad_request_status: int,
+) -> EnvState:
+    """Resolve ``start_t`` and reset the engine, mapping ``ValueError`` to HTTP 400."""
+    start_t = payload.start_t if payload.start_t is not None else 0
+    try:
+        return env.reset(seed=payload.seed, start_t=start_t)
+    except ValueError as exc:
+        raise http_exception_cls(status_code=bad_request_status, detail=str(exc)) from exc
 
 
 def _build_actions_matrix(
@@ -292,7 +322,7 @@ def create_app() -> FastAPI:
     @app.post("/v1/reset", response_model=ResetResponse)
     async def reset(payload: ResetRequest) -> ResetResponse:
         env = require_env()
-        state = env.reset(seed=payload.seed)
+        state = _perform_reset(env, payload, http_exception_cls, status.HTTP_400_BAD_REQUEST)
         return ResetResponse(state=EnvStateModel.from_dataclass(state))
 
     @app.get("/v1/observe", response_model=ObserveResponse)
@@ -300,6 +330,12 @@ def create_app() -> FastAPI:
         env = require_env()
         observation = env.observe()
         return ObserveResponse(observation=ObservationModel.from_dataclass(observation))
+
+    @app.get("/v1/market_window", response_model=MarketWindowContentModel)
+    async def market_window(start: int | None = None, end: int | None = None) -> MarketWindowContentModel:
+        env = require_env()
+        content = env.market_window(start=start, end=end)
+        return MarketWindowContentModel.from_dataclass(content)
 
     @app.post("/v1/step_many", response_model=StepManyResponse)
     async def step_many(payload: StepManyRequest) -> StepManyResponse:

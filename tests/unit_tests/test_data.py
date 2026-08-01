@@ -77,3 +77,58 @@ class TestMarketDataFromCsv:
         path = _csv(tmp_path, "timestamp,open,high,low,close,volume\n")
         md = MarketData.from_csv(str(path))
         assert md.n == 0
+
+
+class TestMarketDataFromParquet:
+    def test_parses_valid_parquet(self, tmp_path: Path) -> None:
+        path = tmp_path / "market.parquet"
+        DataFrame(
+            {
+                "timestamp": ["2024-01-01 00:00:00", "2024-01-01 01:00:00", "2024-01-01 02:00:00"],
+                "open": [100.0, 100.5, 101.0],
+                "high": [101.5, 102.0, 103.0],
+                "low": [99.5, 100.0, 100.8],
+                "close": [100.5, 101.0, 102.5],
+                "volume": [1000.0, 1100.0, 1200.0],
+            }
+        ).to_parquet(path)
+        md = MarketData.from_parquet(str(path))
+        assert md.n == 3
+        assert md.close[0] == pytest.approx(100.5)
+        assert md.close[-1] == pytest.approx(102.5)
+        assert md.volume[1] == pytest.approx(1100.0)
+
+    def test_maps_open_time_to_timestamp(self, tmp_path: Path) -> None:
+        # Binance-style BTC parquets label the bar timestamp ``open_time``.
+        path = tmp_path / "btc.parquet"
+        DataFrame(
+            {
+                "open_time": ["2024-01-01 00:00:00", "2024-01-01 01:00:00"],
+                "open": [42_000.0, 42_100.0],
+                "high": [42_500.0, 42_600.0],
+                "low": [41_800.0, 41_900.0],
+                "close": [42_100.0, 42_050.0],
+                "volume": [12.5, 9.75],
+            }
+        ).to_parquet(path)
+        md = MarketData.from_parquet(str(path))
+        assert md.n == 2
+        assert md.close[0] == pytest.approx(42_100.0)
+        assert md.volume[0] == pytest.approx(12.5)
+        # The renamed frame exposes the mapped timestamp values.
+        assert str(md.ts[0]).startswith("2024-01-01")
+
+    def test_missing_column_raises_key_error(self, tmp_path: Path) -> None:
+        path = tmp_path / "bad.parquet"
+        DataFrame(
+            {
+                "timestamp": ["2024-01-01 00:00:00"],
+                "open": [100.0],
+                "high": [101.0],
+                "low": [99.0],
+                "close": [100.0],
+                # volume intentionally omitted
+            }
+        ).to_parquet(path)
+        with pytest.raises(KeyError):
+            MarketData.from_parquet(str(path))

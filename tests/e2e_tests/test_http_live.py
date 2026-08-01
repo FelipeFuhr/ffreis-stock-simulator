@@ -14,6 +14,7 @@ _HTTP_LIVE_VALIDATED_PATHS = {
     "/v1/reset",
     "/v1/observe",
     "/v1/step_many",
+    "/v1/market_window",
 }
 
 
@@ -53,6 +54,19 @@ def test_http_engine_endpoints_live(
     observe = httpx_get(f"{base}/v1/observe", timeout=5.0)
     assert observe.status_code == 200
     assert observe.json()["observation"]["market_window_handle"]["t"] >= 0
+
+    handle = observe.json()["observation"]["market_window_handle"]
+    market_window = httpx_get(f"{base}/v1/market_window", timeout=5.0)
+    assert market_window.status_code == 200
+    window_payload = market_window.json()
+    assert window_payload["start"] == handle["start"]
+    assert window_payload["end"] == handle["end"]
+    expected_len = handle["end"] - handle["start"]
+    rows = window_payload["rows"]
+    for column in ("open", "high", "low", "close", "volume"):
+        assert len(rows[column]) == expected_len
+    # Fixture volume is a constant 20_000.0 per bar.
+    assert all(value == 20_000.0 for value in rows["volume"])
 
     step_many = httpx_post(
         f"{base}/v1/step_many",

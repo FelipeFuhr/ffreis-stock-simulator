@@ -24,7 +24,16 @@ from .portal import MarketPortal
 from .portfolio import snapshot_from_state
 from .recorder import NullRecorder, Recorder
 from .telemetry import get_telemetry
-from .types import Action, EnvState, Observation, OrderType, Side, StepResult, StepTraceRow
+from .types import (
+    Action,
+    EnvState,
+    MarketWindowContent,
+    Observation,
+    OrderType,
+    Side,
+    StepResult,
+    StepTraceRow,
+)
 
 
 class MarketEnv:
@@ -49,11 +58,15 @@ class MarketEnv:
             close=data.close,
             n=data.n,
         )
+        # Volume is deliberately kept out of MarketArrays (the numba step core) and
+        # carried alongside it so the observation surface can expose it unchanged.
+        self._volume = data.volume
         self._cfg = cfg
         self._rng = default_rng(cfg.seed)
         self._portal = MarketPortal(
             market_arrays=self._market_arrays,
             observation_window=self._cfg.observation_window,
+            volume=self._volume,
         )
         self._core_state = initial_core_state(
             initial_cash=self._cfg.initial_cash,
@@ -64,19 +77,36 @@ class MarketEnv:
         self._telemetry.set_config_hash(self._config_hash)
         self._recorder = recorder if recorder is not None else NullRecorder()
 
-    def reset(self, seed: int | None = None) -> EnvState:
+    def reset(self, seed: int | None = None, start_t: int = 0) -> EnvState:
         """Reset the environment and return the initial state.
 
         Parameters
         ----------
         seed
             Optional seed for deterministic replay.
+        start_t
+            Bar index to start the episode at. Defaults to ``0``, matching the
+            prior always-zero behavior. Lets a caller begin an episode after
+            enough history has accumulated for indicator warm-up (see
+            :meth:`market_window`) or run walk-forward training over different
+            slices of the same loaded market data. ``reset(seed=S,
+            start_t=T)`` is deterministic: calling it twice with the same
+            ``(seed, start_t)`` pair produces byte-identical episodes.
 
         Returns
         -------
         EnvState
             Initial state snapshot.
+
+        Raises
+        ------
+        ValueError
+            If ``start_t`` is outside ``[0, n)``, where ``n`` is the number of
+            loaded market bars.
         """
+        n = self._market_arrays.n
+        if not 0 <= start_t < n:
+            raise ValueError(f"start_t must satisfy 0 <= start_t < {n} (market has {n} bars); got {start_t}")
         actual_seed: int
         if seed is not None:
             self._rng = default_rng(seed)
@@ -87,6 +117,7 @@ class MarketEnv:
         self._core_state = initial_core_state(
             initial_cash=self._cfg.initial_cash,
             max_orders=self._cfg.max_open_orders,
+            start_t=start_t,
         )
         self._recorder.start_episode(actual_seed)
         return self._to_env_state(self._core_state)
@@ -392,6 +423,31 @@ class MarketEnv:
             order_summary_vector=orders.to_vector(),
             done=self._core_state.done,
         )
+
+    def market_window(
+        self,
+        start: int | None = None,
+        end: int | None = None,
+    ) -> MarketWindowContent:
+        """Return raw OHLCV rows for the current market window.
+
+        Reads through to the portal against the engine's current bar index, so
+        rows with index greater than ``t`` are never returned. With explicit
+        ``start``/``end`` bounds an agent can fetch earlier history (clamped to
+        ``[0, t + 1)``) to warm up indicators at episode start.
+
+        Parameters
+        ----------
+        start, end
+            Optional window bounds. When both are omitted the current
+            observation window is returned.
+
+        Returns
+        -------
+        MarketWindowContent
+            Window metadata plus per-bar open/high/low/close/volume values.
+        """
+        return self._portal.window_content(self._core_state.t, start=start, end=end)
 
     def _to_env_state(self, state: CoreState) -> EnvState:
         portfolio = snapshot_from_state(state, self._portal.current_price(state.t))

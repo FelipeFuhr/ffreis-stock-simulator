@@ -21,6 +21,20 @@ def _market_arrays() -> MarketArrays:
     return MarketArrays(open=open_, high=high, low=low, close=close, n=4)
 
 
+def test_initial_core_state_defaults_start_t_to_zero() -> None:
+    state = initial_core_state(initial_cash=1000.0, max_orders=2)
+    assert state.t == 0
+    assert state.done is False
+
+
+def test_initial_core_state_threads_start_t() -> None:
+    state = initial_core_state(initial_cash=1000.0, max_orders=2, start_t=2000)
+    assert state.t == 2000
+    # done is still hardcoded False at reset regardless of start_t — MarketEnv
+    # is responsible for bounds-validating start_t before it ever reaches here.
+    assert state.done is False
+
+
 def test_step_core_done_short_circuit() -> None:
     base = initial_core_state(initial_cash=1000.0, max_orders=2)
     done_state = CoreState(

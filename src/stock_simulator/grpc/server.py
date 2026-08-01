@@ -188,6 +188,8 @@ class _ActionLike(Protocol):
 class _RequestWithSeed(Protocol):
     has_seed: bool
     seed: int
+    has_start_t: bool
+    start_t: int
 
 
 class _RequestWithActions(Protocol):
@@ -285,10 +287,18 @@ class EngineGrpcService:
     def Reset(  # noqa: N802  # NOSONAR
         self, request: _RequestWithSeed, context: grpc_ServicerContext | None
     ) -> ProtoMessage:
-        _ = context
         pb2 = _require_engine_pb2()
         seed: int | None = int(request.seed) if request.has_seed else None
-        state = self._env.reset(seed=seed)
+        start_t: int = int(request.start_t) if request.has_start_t else 0
+        try:
+            state = self._env.reset(seed=seed, start_t=start_t)
+        except ValueError as exc:
+            if context is None:
+                raise
+            if grpc_StatusCode is None:
+                raise RuntimeError(_GRPC_RUNTIME_UNAVAILABLE) from exc
+            context.abort(grpc_StatusCode.INVALID_ARGUMENT, str(exc))
+            raise AssertionError("context.abort should raise") from exc
         return pb2.ResetResponse(state=_state_to_proto(state))
 
     def Observe(self, request: ProtoMessage, context: grpc_ServicerContext | None) -> ProtoMessage:  # noqa: N802  # NOSONAR
