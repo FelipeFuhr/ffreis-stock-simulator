@@ -12,6 +12,7 @@ from collections.abc import Callable
 from json import loads as json_loads
 from pathlib import Path
 
+import pytest
 from numpy import float64 as np_float64
 from numpy.typing import NDArray
 
@@ -170,3 +171,71 @@ class TestMarketEnvTraceSinkWiring:
         assert len(trace_rows) == 2
         lines = path.read_text(encoding="utf-8").splitlines()
         assert len(lines) == 2
+
+    def test_liquidating_step_trace_row_has_no_fill_but_reflects_liquidated_state(
+        self,
+        tmp_path: Path,
+        market_data_factory: Callable[..., MarketData],
+        encode_actions: Callable[[list[Action]], NDArray[np_float64]],
+    ) -> None:
+        """Margin enforcement + trace recording, exercised together (gap found while
+        building the full HTTP lifecycle integration test — see
+        tests/integration_tests/test_margin_lifecycle.py).
+
+        A mark-to-market liquidation (`settle_insolvency` in core.py) force-closes
+        the book on a step where no order is placed or filled — it only marks the
+        existing position to the new bar's close. So the liquidating step's own
+        trace row must show `has_filled_order=False`/`fills=0`/`filled_order_slot
+        is None`/`exec_price is None` even though `done=True` and the portfolio
+        fields already reflect the *post*-liquidation state (`position_units=0.0`,
+        `cash == equity`, `leverage=0.0`). Neither test_margin_enforcement.py
+        (which never reads the trace sink) nor the rest of this file's
+        TestMarketEnvTraceSinkWiring (which never opens a leveraged/liquidated
+        position) exercised this combination before.
+        """
+        path = tmp_path / "trace.jsonl"
+        writer = TraceJsonlWriter(path)
+        # Bar 0->1 flat at 100, bar 2 halves to 50 — the same shape as
+        # test_margin_enforcement.py::TestInsolvencyTermination's mark-to-market
+        # wipeout case, driven here through step_many instead of step so the
+        # trace sink (only wired into step_many) actually has something to record.
+        env = MarketEnv(
+            data=market_data_factory(close=[100.0, 100.0, 50.0, 50.0, 50.0]),
+            cfg=GameConfig(
+                seed=1,
+                use_numba=False,
+                market_latency_bars=0,
+                initial_cash=1000.0,
+                max_leverage=3.0,
+                fee_bps=0.0,
+                slippage_bps=0.0,
+                partial_fill_min=1.0,
+                partial_fill_max=1.0,
+            ),
+            trace_sink=writer,
+        )
+        env.reset(seed=1)
+
+        # Open exactly at the 3.0x cap: 30 units at 100 on 1000 equity (not
+        # clipped — 30*100 == 3.0*1000, the boundary is inclusive).
+        _, _, opened_dones, _ = env.step_many(encode_actions([Action(side="buy", units=30.0, order_type="market")]))
+        assert opened_dones.tolist() == [False]
+
+        # Price halves (100 -> 50): equity = -2000 + 30*50 = -500 <= 0 -> liquidated.
+        _, _, liquidated_dones, _ = env.step_many(encode_actions([Action(side="hold")]))
+        assert liquidated_dones.tolist() == [True]
+        env.close()
+
+        lines = path.read_text(encoding="utf-8").splitlines()
+        assert len(lines) == 2
+        liquidation_row = json_loads(lines[-1])
+        assert liquidation_row["fills"] == 0
+        assert liquidation_row["has_filled_order"] is False
+        assert liquidation_row["filled_order_slot"] is None
+        assert liquidation_row["exec_price"] is None
+        assert liquidation_row["done"] is True
+        assert liquidation_row["position_units"] == pytest.approx(0.0)
+        assert liquidation_row["cash"] == pytest.approx(-500.0)
+        assert liquidation_row["equity"] == pytest.approx(-500.0)
+        assert liquidation_row["equity"] == pytest.approx(liquidation_row["cash"])
+        assert liquidation_row["leverage"] == pytest.approx(0.0)

@@ -110,7 +110,11 @@ with a Numba-JIT order book, exposed via HTTP (FastAPI) and gRPC.
   request's `include_trace` flag — a debugging/verification aid for the fact that
   `include_trace` is per-request and client-opted, so traces are otherwise
   invisible unless you own the client code. Distinct from the `Recorder`/JSONL
-  point above — see that bullet.
+  point above — see that bullet. The sink is written to **only** from
+  `MarketEnv.step_many` — the singular `MarketEnv.step` never references
+  `self._trace_sink` at all (it already has the `Recorder` port for that job).
+  A script or test that wants trace output from a configured sink must drive
+  the episode through `step_many` (even with single-action batches), not `step`.
 
 - **Both HTTP and gRPC are production transports** — not alternatives. The RL agent
   uses HTTP; the integration hub tests gRPC.
@@ -138,6 +142,17 @@ uv sync && make test && make run
 make test-grpc-parity       # called by integration-hub
 docker build -t ffreis-stock-simulator .
 ```
+
+- **`examples/margin_scenario.py`** — narrated, human-runnable walkthrough of fill
+  clipping + insolvency liquidation + `STOCK_SIM_TRACE_JSONL` trace recording,
+  working together over a synthetic flat-then-crash market. No `make examples`
+  target exists (nothing else under `examples/` is wired to `make` either —
+  `smoke_api_grpc.py` runs via the separate `make smoke-api-grpc` docker-compose
+  target). Run it directly: `uv run python examples/margin_scenario.py` — no
+  extras needed, it only touches `stock_simulator.env.MarketEnv`, not the
+  HTTP/gRPC transports. See `tests/integration_tests/test_margin_lifecycle.py`
+  for the same scenario shape pinned with exact assertions through the real
+  `/v1/step_many` HTTP surface.
 
 ## Keeping this file current
 
