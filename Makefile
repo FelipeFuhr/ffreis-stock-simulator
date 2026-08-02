@@ -175,6 +175,9 @@ mutation-test: ## Run mutation testing with mutmut (slow — run in CI)
 	uv run mutmut run --paths-to-mutate=$(SRC_DIR) --tests-dir=$(TEST_DIR) || true
 	uv run mutmut results
 
+.PHONY: mutation
+mutation: mutation-test ## Alias of mutation-test (lefthook release tier expects this name)
+
 .PHONY: clean
 clean: ## Remove caches and build artifacts
 	rm -rf .venv .pytest_cache .mypy_cache .ruff_cache .coverage htmlcov coverage.xml
