@@ -252,6 +252,11 @@ components:
             type: number
           type: array
           title: Volume
+        taker_buy_volume:
+          items:
+            type: number
+          type: array
+          title: Taker Buy Volume
       additionalProperties: false
       type: object
       required:
@@ -260,6 +265,7 @@ components:
       - low
       - close
       - volume
+      - taker_buy_volume
       title: MarketWindowRowsModel
       description: Per-bar OHLCV column arrays for a market window.
     MarketWindowViewHandleModel:

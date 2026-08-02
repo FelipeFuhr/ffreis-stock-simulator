@@ -23,7 +23,7 @@ _HOLD_ACTION = {"side_code": 0, "units": 0.0, "order_type_code": 0, "has_limit_p
 
 
 def _market_data(n: int = 24) -> MarketData:
-    """Distinct per-column ramps + ramped volume so slice values are verifiable."""
+    """Distinct per-column ramps + ramped volume/taker_buy_volume so slice values are verifiable."""
     base = np.arange(n, dtype=np.float64)
     return MarketData(
         DataFrame(
@@ -34,6 +34,7 @@ def _market_data(n: int = 24) -> MarketData:
                 "low": base + 50.0,
                 "close": base + 150.0,
                 "volume": base + 1_000.0,
+                "taker_buy_base_volume": base + 3_000.0,
             }
         )
     )
@@ -41,6 +42,7 @@ def _market_data(n: int = 24) -> MarketData:
 
 def test_env_market_window_threads_volume() -> None:
     data = _market_data(n=24)
+    assert data.taker_buy_volume is not None
     env = MarketEnv(data=data, cfg=GameConfig(observation_window=4, use_numba=False))
     env.reset(seed=1)
 
@@ -48,8 +50,9 @@ def test_env_market_window_threads_volume() -> None:
     assert content.t == 0  # fresh episode
     assert content.start == 0
     assert content.end == 1
-    # Volume threaded through unchanged from the source array.
+    # Volume and taker_buy_volume threaded through unchanged from the source arrays.
     assert content.volume == pytest.approx(data.volume[content.start : content.end].tolist())
+    assert content.taker_buy_volume == pytest.approx(data.taker_buy_volume[content.start : content.end].tolist())
     assert content.close == pytest.approx(data.close[content.start : content.end].tolist())
 
 
@@ -71,6 +74,7 @@ def test_env_market_window_warmup_at_nonzero_start_t() -> None:
     """
     n = 2_500
     data = _market_data(n=n)
+    assert data.taker_buy_volume is not None
     env = MarketEnv(data=data, cfg=GameConfig(observation_window=64, use_numba=False))
     env.reset(seed=1, start_t=2000)
 
@@ -86,6 +90,7 @@ def test_env_market_window_warmup_at_nonzero_start_t() -> None:
     assert len(warmup.close) == 1500
     assert warmup.close == pytest.approx(data.close[501:2001].tolist())
     assert warmup.volume == pytest.approx(data.volume[501:2001].tolist())
+    assert warmup.taker_buy_volume == pytest.approx(data.taker_buy_volume[501:2001].tolist())
     # Non-degenerate: real, distinct per-bar values — not a 1-bar sliver
     # repeated/padded to look like a window.
     assert len(set(warmup.close)) > 1
@@ -99,6 +104,7 @@ def _client_with_engine(monkeypatch: MonkeyPatch, env: MarketEnv) -> TestClient:
 
 def test_market_window_endpoint_aligns_with_observe(monkeypatch: MonkeyPatch) -> None:
     data = _market_data(n=24)
+    assert data.taker_buy_volume is not None
     env = MarketEnv(data=data, cfg=GameConfig(observation_window=4, use_numba=False))
     with _client_with_engine(monkeypatch, env) as client:
         client.post("/v1/reset", json={"seed": 5})
@@ -119,10 +125,12 @@ def test_market_window_endpoint_aligns_with_observe(monkeypatch: MonkeyPatch) ->
         assert rows["low"] == pytest.approx(data.low[start:end].tolist())
         assert rows["close"] == pytest.approx(data.close[start:end].tolist())
         assert rows["volume"] == pytest.approx(data.volume[start:end].tolist())
+        assert rows["taker_buy_volume"] == pytest.approx(data.taker_buy_volume[start:end].tolist())
 
 
 def test_market_window_endpoint_explicit_bounds_no_future_leakage(monkeypatch: MonkeyPatch) -> None:
     data = _market_data(n=24)
+    assert data.taker_buy_volume is not None
     env = MarketEnv(data=data, cfg=GameConfig(observation_window=4, use_numba=False))
     with _client_with_engine(monkeypatch, env) as client:
         client.post("/v1/reset", json={"seed": 5})
@@ -137,6 +145,8 @@ def test_market_window_endpoint_explicit_bounds_no_future_leakage(monkeypatch: M
         assert len(rows["close"]) == current_t + 1
         assert rows["close"] == pytest.approx(data.close[0 : current_t + 1].tolist())
         assert rows["volume"] == pytest.approx(data.volume[0 : current_t + 1].tolist())
+        expected_taker_buy_volume = data.taker_buy_volume[0 : current_t + 1].tolist()
+        assert rows["taker_buy_volume"] == pytest.approx(expected_taker_buy_volume)
 
 
 def test_market_window_endpoint_negative_start_clamps(monkeypatch: MonkeyPatch) -> None:

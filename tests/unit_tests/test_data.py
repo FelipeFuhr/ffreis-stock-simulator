@@ -44,6 +44,24 @@ class TestMarketDataFromDataFrame:
         assert md.low.dtype == np.float32
         assert md.open.dtype == np.float32
         assert md.volume.dtype == np.float32
+        assert md.taker_buy_volume is None
+
+    def test_taker_buy_volume_loaded_when_column_present(self) -> None:
+        df = DataFrame(
+            {
+                "timestamp": ["2024-01-01", "2024-01-02"],
+                "open": [10.0, 11.0],
+                "high": [11.0, 12.0],
+                "low": [9.0, 10.0],
+                "close": [10.5, 11.5],
+                "volume": [100.0, 200.0],
+                "taker_buy_base_volume": [60.0, 150.0],
+            }
+        )
+        md = MarketData(df)
+        assert md.taker_buy_volume is not None
+        assert md.taker_buy_volume.dtype == np.float32
+        assert md.taker_buy_volume[1] == pytest.approx(150.0)
 
 
 class TestMarketDataFromCsv:
@@ -54,6 +72,8 @@ class TestMarketDataFromCsv:
         assert md.close[0] == pytest.approx(100.5)
         assert md.close[-1] == pytest.approx(102.5)
         assert md.volume[1] == pytest.approx(1100.0)
+        # CSV fixtures never carry taker_buy_base_volume.
+        assert md.taker_buy_volume is None
 
     def test_missing_column_raises_key_error(self, tmp_path: Path) -> None:
         bad = "timestamp,open,high,low,close\n2024-01-01,100,101,99,100\n"
@@ -97,6 +117,26 @@ class TestMarketDataFromParquet:
         assert md.close[0] == pytest.approx(100.5)
         assert md.close[-1] == pytest.approx(102.5)
         assert md.volume[1] == pytest.approx(1100.0)
+        assert md.taker_buy_volume is None
+
+    def test_taker_buy_volume_loaded_when_column_present(self, tmp_path: Path) -> None:
+        # Binance-style kline parquets carry taker_buy_base_volume alongside volume.
+        path = tmp_path / "btc.parquet"
+        DataFrame(
+            {
+                "open_time": ["2024-01-01 00:00:00", "2024-01-01 01:00:00"],
+                "open": [42_000.0, 42_100.0],
+                "high": [42_500.0, 42_600.0],
+                "low": [41_800.0, 41_900.0],
+                "close": [42_100.0, 42_050.0],
+                "volume": [12.5, 9.75],
+                "taker_buy_base_volume": [7.0, 5.25],
+            }
+        ).to_parquet(path)
+        md = MarketData.from_parquet(str(path))
+        assert md.taker_buy_volume is not None
+        assert md.taker_buy_volume[0] == pytest.approx(7.0)
+        assert md.taker_buy_volume[1] == pytest.approx(5.25)
 
     def test_maps_open_time_to_timestamp(self, tmp_path: Path) -> None:
         # Binance-style BTC parquets label the bar timestamp ``open_time``.

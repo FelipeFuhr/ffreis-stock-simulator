@@ -102,8 +102,10 @@ class MarketWindowContent:
         Exclusive end index of the window. Never exceeds ``t + 1`` (no lookahead).
     t
         Current bar index the window was resolved against.
-    open, high, low, close, volume
-        Per-bar values for indices ``[start, end)``.
+    open, high, low, close, volume, taker_buy_volume
+        Per-bar values for indices ``[start, end)``. ``taker_buy_volume`` is
+        zero-filled when the underlying data source doesn't carry it (e.g. CSV
+        fixtures) — see :class:`~stock_simulator.data.MarketData`.
     """
 
     start: int
@@ -114,6 +116,7 @@ class MarketWindowContent:
     low: tuple[float, ...]
     close: tuple[float, ...]
     volume: tuple[float, ...]
+    taker_buy_volume: tuple[float, ...]
 
 
 @dataclass(frozen=True)
@@ -334,6 +337,7 @@ class MarketWindowRowsModel(BaseModel):
     low: list[float]
     close: list[float]
     volume: list[float]
+    taker_buy_volume: list[float]
 
 
 class MarketWindowContentModel(BaseModel):
@@ -359,6 +363,7 @@ class MarketWindowContentModel(BaseModel):
                 low=list(value.low),
                 close=list(value.close),
                 volume=list(value.volume),
+                taker_buy_volume=list(value.taker_buy_volume),
             ),
         )
 

@@ -62,15 +62,18 @@ class MarketEnv:
             close=data.close,
             n=data.n,
         )
-        # Volume is deliberately kept out of MarketArrays (the numba step core) and
-        # carried alongside it so the observation surface can expose it unchanged.
+        # Volume and taker_buy_volume are deliberately kept out of MarketArrays
+        # (the numba step core) and carried alongside it so the observation
+        # surface can expose them unchanged.
         self._volume = data.volume
+        self._taker_buy_volume = data.taker_buy_volume
         self._cfg = cfg
         self._rng = default_rng(cfg.seed)
         self._portal = MarketPortal(
             market_arrays=self._market_arrays,
             observation_window=self._cfg.observation_window,
             volume=self._volume,
+            taker_buy_volume=self._taker_buy_volume,
         )
         self._core_state = initial_core_state(
             initial_cash=self._cfg.initial_cash,
