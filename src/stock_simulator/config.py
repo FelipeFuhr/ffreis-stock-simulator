@@ -12,6 +12,43 @@ from typing import get_type_hints
 type ConfigScalar = bool | int | float | str
 
 
+@dataclass(frozen=True)
+class MaintenanceMarginTier:
+    """One bracket of an exchange's maintenance-margin table.
+
+    A real exchange scales the maintenance requirement with position size: each
+    bracket covers notionals at or above ``notional_floor`` and contributes
+    ``notional * rate - amount`` to the requirement. ``amount`` is the usual
+    cumulative deduction that keeps the piecewise requirement continuous across
+    bracket boundaries; the lowest bracket has none, hence ``0.0``.
+
+    The simulator ships exactly one bracket (see
+    :data:`MAINTENANCE_MARGIN_TIERS`). The type exists so a full table can be
+    added later by extending the tuple and selecting a row by notional, without
+    reshaping the formula or the config surface.
+    """
+
+    notional_floor: float
+    rate: float
+    amount: float
+
+
+# Documented APPROXIMATION of Binance USDⓈ-M BTCUSDT-perpetual's lowest
+# maintenance-margin bracket (0.5% rate, no deduction). It is NOT live-synced with
+# any exchange — Binance publishes its brackets through a dynamically rendered page
+# and revises them over time, so these are hardcoded, deliberately conservative
+# stand-ins that both config fields below can override.
+#
+# Deliberate simplification: a single flat tier, not the real multi-bracket table.
+# Multi-tier brackets exist to make very large positions progressively harder to
+# hold; this simulator has one participant and no market-impact model, so the extra
+# brackets would add configuration surface without changing any behavior worth
+# studying. Keep this tuple sorted by ``notional_floor`` if more rows are ever added.
+MAINTENANCE_MARGIN_TIERS: tuple[MaintenanceMarginTier, ...] = (
+    MaintenanceMarginTier(notional_floor=0.0, rate=0.005, amount=0.0),
+)
+
+
 @dataclass
 class GameConfig:
     """Runtime configuration for environment dynamics and execution behavior."""
@@ -22,6 +59,13 @@ class GameConfig:
 
     initial_cash: float = 100_000.0
     max_leverage: float = 3.0
+    # Initial margin (``max_leverage``) and maintenance margin (the two fields below)
+    # are separate thresholds, exactly as on a real exchange: the first caps how much
+    # exposure an ORDER may open, the second decides when an ALREADY-OPEN position is
+    # force-closed. Maintenance is far more permissive, so leverage drifting above
+    # ``max_leverage`` between fills is normal and does not by itself liquidate.
+    maintenance_margin_rate: float = MAINTENANCE_MARGIN_TIERS[0].rate
+    maintenance_amount: float = MAINTENANCE_MARGIN_TIERS[0].amount
     delta_exposure: float = 0.25
 
     fee_bps: float = 4.0
@@ -76,6 +120,8 @@ class GameConfig:
             max_open_orders=int(raw.get("max_open_orders", cls.max_open_orders)),
             initial_cash=float(raw.get("initial_cash", cls.initial_cash)),
             max_leverage=float(raw.get("max_leverage", cls.max_leverage)),
+            maintenance_margin_rate=float(raw.get("maintenance_margin_rate", cls.maintenance_margin_rate)),
+            maintenance_amount=float(raw.get("maintenance_amount", cls.maintenance_amount)),
             delta_exposure=float(raw.get("delta_exposure", cls.delta_exposure)),
             fee_bps=float(raw.get("fee_bps", cls.fee_bps)),
             slippage_bps=float(raw.get("slippage_bps", cls.slippage_bps)),

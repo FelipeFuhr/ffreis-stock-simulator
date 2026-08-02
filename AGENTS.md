@@ -24,6 +24,42 @@ with a Numba-JIT order book, exposed via HTTP (FastAPI) and gRPC.
   mirroring the existing `has_seed`/`seed` fields) — see
   `proto/stocksim_grpc/engine.proto`.
 
+- **Margin is TWO-TIER, exactly as on a real exchange — don't conflate the tiers.**
+  `max_leverage` is the **initial margin**: it governs whether an order may be
+  OPENED/INCREASED and is evaluated *once, at order time* (`clip_units_for_leverage`,
+  next bullet). `maintenance_margin_rate` / `maintenance_amount` are the **maintenance
+  margin**: a separate, far more permissive threshold governing whether an
+  ALREADY-OPEN position is force-closed, re-evaluated at *every* mark
+  (`settle_maintenance_margin`). The formula is one bracket of an exchange's
+  maintenance table — `maintenance_margin = abs(notional) * rate - amount`, floored at
+  zero — and liquidation triggers when margin balance (this engine's `equity`: cash
+  plus unrealized PnL at the mark) drops below it.
+  **The consequence to internalize: leverage drifting well above `max_leverage`
+  between fills is NORMAL, REAL exchange behavior, not a bug and not something to
+  suppress by continuously re-clipping.** A book opened at the 2.0x cap and marked
+  down 40% carries 6.0x and is left alone — it is still ~33x above its 0.5%
+  maintenance requirement. What a real exchange does instead is intervene *earlier
+  than total wipeout* through this second, more sensitive check, closing the account
+  out with **positive** residual equity (worked example: 20 units against −1000 cash,
+  marked at 50.125 → equity +2.50 vs a 5.0125 requirement → liquidated holding $2.50).
+  Before this existed, `equity <= 0` was the only trigger, which is why liquidation
+  was near-unreachable at 3x on 1h bars.
+  Defaults (`rate = 0.005`, `amount = 0.0`) are a **documented approximation** of
+  Binance USDⓈ-M BTCUSDT-perpetual's lowest bracket, **not live-synced** with any
+  exchange — Binance renders its bracket table dynamically and revises it over time.
+  Both are ordinary `GameConfig` fields and overridable per run.
+  Deliberate, honest simplifications (do not read these as oversights):
+  **single flat tier** — `config.MAINTENANCE_MARGIN_TIERS` is a one-row table typed as
+  `MaintenanceMarginTier(notional_floor, rate, amount)` so a real multi-bracket table
+  can be added by extending the tuple and selecting a row by notional, without
+  reshaping the formula; multi-tier brackets exist to make very large positions harder
+  to hold, which is meaningless with one participant. **Full-close on trigger, never
+  partial/graduated liquidation** — real exchanges liquidate in tranches specifically
+  to limit market impact on a shared order book; this simulator has no other
+  participants and no market-impact model, so a full close is the correct
+  simplification. **No separate liquidation fee** — Binance's published liquidation
+  formula does not define one as its own line item, so none is invented here.
+
 - **`max_leverage` is ENFORCED at fill time — this changed pre-existing behavior.**
   `GameConfig.max_leverage` (default `3.0`) used to be parsed and never read: `core.py`
   had no fill-time check, so an agent could accumulate unbounded leverage. It is now a
@@ -39,27 +75,36 @@ with a Numba-JIT order book, exposed via HTTP (FastAPI) and gRPC.
   behavior will now see smaller fills than they requested**; compare `EnvState.units`
   against the requested size rather than assuming full fills.
 
-- **Episodes terminate on insolvency, not only at end of data.** `done` used to be
+- **Episodes terminate on liquidation, not only at end of data.** `done` used to be
   purely `next_t >= n - 1`, so an episode kept executing steps against negative equity
   (an RL walk-forward run saw equity from −$86k to +$20.4M on a $100k account, with 91
-  of 99 episodes ending insolvent while `done` stayed `False`). `settle_insolvency`
-  (`core.py`) now runs twice per step — once after the bar's fills, once after the
-  mark-to-market move into the next bar — and when equity is non-positive it force-closes
-  the whole position at that price (units zeroed, loss realized into cash, so equity
-  equals cash exactly and cannot drift further from a stale unit count) and sets
-  `done = True`. Both causes are covered: a fill on the current bar and a losing
-  position's mark-to-market drop.
+  of 99 episodes ending insolvent while `done` stayed `False`). Margin is now settled at
+  **two points per step** — after the bar's fills, and after the mark-to-market move
+  into the next bar — and at each point **two checks** run in order:
+  `settle_maintenance_margin` (the primary trigger; normally fires with equity still
+  positive) then `settle_insolvency` (`equity <= 0`). `settle_insolvency` is kept
+  deliberately as the deep-tail backstop: a single volatile bar can gap clean past the
+  maintenance threshold and land below zero in one move — real, and not catchable by
+  the maintenance check. Either trigger force-closes the whole position at that price
+  via the shared `liquidate_position` (units zeroed, PnL realized into cash, so equity
+  equals cash exactly and cannot drift from a stale unit count) and sets `done = True`.
+  The two triggers differ only in *when* they fire, never in what they do.
 
-- **Both engines implement margin identically — keep them in sync.** The clip and the
-  liquidation exist twice: `clip_units_for_leverage`/`settle_insolvency` for the
-  pure-Python `step_core`, and `_clip_units_for_leverage_jit`/`_settle_insolvency_jit`
-  for `step_core_jit`. The bodies are statement-for-statement identical, and the
-  comparisons are written multiplied-through (`abs(u) * price <= cap * equity`) instead
-  of as divisions so both produce bit-identical floats. `step_core_jit` takes
-  `max_leverage` as a parameter — **both** call sites (`step_core_numba` and
-  `MarketEnv._advance_one_step`) must pass it. Parity is pinned by
-  `tests/unit_tests/test_margin_enforcement.py::TestNumbaParity` (exact equality, not
-  approx) and `tests/unit_tests/test_use_numba_parity.py`.
+- **Both engines implement margin identically — keep them in sync.** Every margin
+  helper exists twice: `clip_units_for_leverage`, `maintenance_margin`,
+  `is_below_maintenance_margin`, `liquidate_position`, `settle_maintenance_margin`,
+  `settle_insolvency` for the pure-Python `step_core`, each with a
+  `_<name>_jit` mirror for `step_core_jit`. The bodies are statement-for-statement
+  identical, and the comparisons are written multiplied-through
+  (`abs(u) * price <= cap * equity`) instead of as divisions so both produce
+  bit-identical floats. `step_core_jit` takes `max_leverage`,
+  `maintenance_margin_rate` and `maintenance_amount` as parameters — **both** call
+  sites (`step_core_numba` and `MarketEnv._advance_one_step`) must pass all three.
+  Parity is pinned by an AST comparison of each mirror pair
+  (`TestNumbaMirrorsAreIdenticalSource`, which normalizes *only* the `_jit` helper
+  names a delegating mirror must call — see its `_JIT_ALIASES`) plus exact-equality
+  scenarios in `tests/unit_tests/test_margin_enforcement.py::TestNumbaParity` and
+  `tests/unit_tests/test_use_numba_parity.py`.
 
 - **Reported `leverage` is always finite.** `abs(units * price) / equity` is unbounded
   when an open position is carried against non-positive equity, and the old `inf` there
@@ -143,9 +188,13 @@ make test-grpc-parity       # called by integration-hub
 docker build -t ffreis-stock-simulator .
 ```
 
-- **`examples/margin_scenario.py`** — narrated, human-runnable walkthrough of fill
-  clipping + insolvency liquidation + `STOCK_SIM_TRACE_JSONL` trace recording,
-  working together over a synthetic flat-then-crash market. No `make examples`
+- **`examples/margin_scenario.py`** — narrated, human-runnable walkthrough of the
+  whole margin system over synthetic markets, in two scenarios: (1) fill clipping
+  (initial margin) + the `equity <= 0` backstop catching a violent gap +
+  `STOCK_SIM_TRACE_JSONL` trace recording; (2) leverage drifting to 6.0x on a 3.0x
+  cap **without** anything firing, then a maintenance-margin liquidation closing the
+  book at **+$2.50** equity. Read scenario 2 first if the two-tier model is the thing
+  you are trying to understand. No `make examples`
   target exists (nothing else under `examples/` is wired to `make` either —
   `smoke_api_grpc.py` runs via the separate `make smoke-api-grpc` docker-compose
   target). Run it directly: `uv run python examples/margin_scenario.py` — no

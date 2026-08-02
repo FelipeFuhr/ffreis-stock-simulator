@@ -1,9 +1,19 @@
-"""Margin enforcement: max_leverage fill clipping and insolvency liquidation.
+"""Margin enforcement: the two-tier margin model and its liquidation triggers.
 
-`GameConfig.max_leverage` used to be parsed and never read, so an agent could
-accumulate unbounded leverage, and `done` was driven purely by end-of-data, so an
-episode kept executing steps against negative equity. These tests pin both halves of
-the fix and the python/numba parity of the two code paths that implement it.
+The engine separates the two margin concepts a real exchange keeps apart:
+
+* **Initial margin** — `GameConfig.max_leverage`, applied once per order by
+  `clip_units_for_leverage`. It used to be parsed and never read, so an agent could
+  accumulate unbounded leverage.
+* **Maintenance margin** — `GameConfig.maintenance_margin_rate`/`maintenance_amount`,
+  re-evaluated at every mark by `settle_maintenance_margin`. Far more permissive than
+  the order-time cap, and the trigger that force-closes an already-open position while
+  it still has positive equity.
+
+`settle_insolvency` (`equity <= 0`) remains behind both as the deep-tail backstop for a
+single bar that gaps clean past the maintenance threshold. These tests pin all three
+pieces, the fact that leverage may legitimately drift above `max_leverage` between
+fills without anything firing, and the python/numba parity of every code path involved.
 """
 
 from __future__ import annotations
@@ -21,17 +31,25 @@ from numpy import asarray as np_asarray
 from numpy import float32 as np_float32
 from numpy import float64 as np_float64
 
-from stock_simulator.config import GameConfig
+from stock_simulator.config import MAINTENANCE_MARGIN_TIERS, GameConfig
 from stock_simulator.core import (
     CoreState,
     CoreStepOutput,
     MarketArrays,
     _clip_units_for_leverage_jit,
+    _is_below_maintenance_margin_jit,
+    _liquidate_position_jit,
+    _maintenance_margin_jit,
     _settle_insolvency_jit,
+    _settle_maintenance_margin_jit,
     clip_units_for_leverage,
     initial_core_state,
+    is_below_maintenance_margin,
     leverage_ratio,
+    liquidate_position,
+    maintenance_margin,
     settle_insolvency,
+    settle_maintenance_margin,
     step_core,
     step_core_numba,
 )
@@ -234,6 +252,236 @@ class TestClipHelper:
         assert clip_units_for_leverage(1000.0, 0.0, 1.0, 100.0, 0.0, 2.0) == 1.0
 
 
+class TestMaintenanceMarginFormula:
+    """`notional * rate - amount`, floored at zero — one bracket of an exchange table."""
+
+    def test_requirement_is_the_configured_fraction_of_notional(self) -> None:
+        assert maintenance_margin(1002.5, 0.005, 0.0) == pytest.approx(5.0125, rel=1e-12)
+
+    def test_maintenance_amount_is_deducted_from_the_requirement(self) -> None:
+        # The bracket deduction that keeps a multi-tier table continuous; the shipped
+        # single tier has none, but the field is honored so a table can be added later.
+        assert maintenance_margin(1000.0, 0.01, 4.0) == pytest.approx(6.0, rel=1e-12)
+
+    def test_requirement_is_floored_at_zero(self) -> None:
+        # A deduction larger than the raw requirement cannot make the requirement negative.
+        assert maintenance_margin(1000.0, 0.005, 500.0) == 0.0
+
+    def test_flat_book_requires_nothing(self) -> None:
+        assert maintenance_margin(0.0, 0.005, 0.0) == 0.0
+
+    def test_short_notional_is_treated_by_gross_size(self) -> None:
+        assert maintenance_margin(-1000.0, 0.005, 0.0) == maintenance_margin(1000.0, 0.005, 0.0)
+
+    def test_equity_above_the_requirement_is_not_below_it(self) -> None:
+        assert is_below_maintenance_margin(5.0125, 1002.5, 0.005, 0.0) is False
+
+    def test_equity_exactly_on_the_requirement_is_not_below_it(self) -> None:
+        # Boundary is inclusive on the surviving side, matching the initial-margin cap.
+        assert is_below_maintenance_margin(5.0, 1000.0, 0.005, 0.0) is False
+
+    def test_equity_under_the_requirement_is_below_it(self) -> None:
+        assert is_below_maintenance_margin(2.5, 1002.5, 0.005, 0.0) is True
+
+    def test_flat_book_is_never_below_maintenance_even_with_negative_equity(self) -> None:
+        # No position to maintain. A negative flat balance is the insolvency
+        # backstop's case, not a margin call.
+        assert is_below_maintenance_margin(-500.0, 0.0, 0.005, 0.0) is False
+
+    def test_shipped_defaults_match_the_documented_single_tier(self) -> None:
+        # The default rate/amount are the lowest bracket of the documented Binance
+        # approximation — one tier, floored at zero notional.
+        assert len(MAINTENANCE_MARGIN_TIERS) == 1
+        tier = MAINTENANCE_MARGIN_TIERS[0]
+        assert tier.notional_floor == 0.0
+        cfg = GameConfig()
+        assert cfg.maintenance_margin_rate == tier.rate == 0.005
+        assert cfg.maintenance_amount == tier.amount == 0.0
+
+    def test_liquidate_position_realizes_the_book_into_cash(self) -> None:
+        portfolio = np_asarray([-1000.0, 20.0], dtype=np_float64)
+        liquidate_position(portfolio, 50.125)
+        assert portfolio.tolist() == [2.5, 0.0]
+
+
+class TestMaintenanceMarginLiquidation:
+    """The maintenance check fires earlier than `equity <= 0`, on an open position."""
+
+    def test_position_comfortably_above_maintenance_survives_a_drawdown(self) -> None:
+        # 15 units at 100 against 1000 equity (1.5x, inside the 2.0x cap). The mark
+        # drops 10% to 90: equity 850 against a 6.75 requirement — untouched.
+        result = step_core(
+            _state(cash=-500.0, units=15.0),
+            Action(side="hold"),
+            _market([100.0, 90.0, 90.0, 90.0]),
+            _cfg(max_leverage=2.0),
+            _FULL_FILL,
+        )
+        assert result.state.done is False
+        assert float(result.state.portfolio[1]) == 15.0
+        assert float(result.state.portfolio[0]) == -500.0
+        assert maintenance_margin(1350.0, 0.005, 0.0) == pytest.approx(6.75, rel=1e-12)
+
+    def test_leverage_drifting_far_above_max_leverage_is_not_liquidated(self) -> None:
+        # THE point of the two-tier model. 20 units bought at the 2.0x cap, then the
+        # mark falls to 60: equity 200, exposure 1200 → 6.0x, three times the ORDER-time
+        # cap. A real exchange does not continuously re-clip an open position, and
+        # neither does this engine: 200 is still far above the 6.0 maintenance
+        # requirement, so the book is untouched and the episode continues.
+        result = step_core(
+            _state(cash=-1000.0, units=20.0),
+            Action(side="hold"),
+            _market([100.0, 60.0, 60.0, 60.0]),
+            _cfg(max_leverage=2.0),
+            _FULL_FILL,
+        )
+        assert result.state.done is False
+        assert float(result.state.portfolio[1]) == 20.0
+        assert float(result.state.portfolio[0]) == -1000.0
+        assert leverage_ratio(20.0, 60.0, 200.0) == pytest.approx(6.0, rel=1e-12)
+        assert is_below_maintenance_margin(200.0, 1200.0, 0.005, 0.0) is False
+
+    def test_crossing_below_maintenance_liquidates_with_positive_residual_equity(self) -> None:
+        # 20 units carried into a mark of 50.125: equity = -1000 + 1002.5 = 2.50, still
+        # POSITIVE, so the `equity <= 0` backstop would not have fired. The maintenance
+        # requirement is 1002.5 * 0.005 = 5.0125, so the account is closed out here,
+        # keeping $2.50 — exactly the earlier intervention a real exchange makes.
+        result = step_core(
+            _state(cash=-1000.0, units=20.0),
+            Action(side="hold"),
+            _market([100.0, 50.125, 50.125, 50.125]),
+            _cfg(max_leverage=2.0),
+            _FULL_FILL,
+        )
+        assert result.state.done is True
+        assert float(result.state.portfolio[1]) == 0.0
+        assert float(result.state.portfolio[0]) == 2.5
+        assert float(result.state.portfolio[0]) > 0.0
+        assert maintenance_margin(1002.5, 0.005, 0.0) == pytest.approx(5.0125, rel=1e-12)
+
+    def test_liquidation_can_trigger_on_the_filling_bar(self) -> None:
+        # The check runs at both points, not only at the next bar's mark. A limit buy
+        # fills 10 units at 300 (exactly the 3.0x cap on 1000 cash) while this bar's
+        # close is 201: equity = -2000 + 2010 = 10.00 against a 10.05 requirement. The
+        # next bar closes at 700, which would put the book far back above water, so only
+        # the fill-bar check can catch this.
+        result = step_core(
+            _state(cash=1000.0),
+            Action(side="buy", units=10.0, order_type="limit", limit_price=300.0),
+            _market([201.0, 700.0, 700.0, 700.0]),
+            _cfg(max_leverage=3.0),
+            _FULL_FILL,
+        )
+        assert result.fills == 1
+        assert result.state.done is True
+        assert float(result.state.portfolio[1]) == 0.0
+        assert float(result.state.portfolio[0]) == 10.0
+        assert maintenance_margin(2010.0, 0.005, 0.0) == pytest.approx(10.05, rel=1e-12)
+
+    def test_a_higher_maintenance_rate_liquidates_earlier_and_leaves_more_equity(self) -> None:
+        # The rate is configurable, and the whole point of it: at a 10% maintenance rate
+        # the same book is closed out at a mark of 55 with $100 left — where the default
+        # 0.5% rate would have carried it down to ~50.25, and the bare insolvency
+        # backstop all the way to 50.
+        result = step_core(
+            _state(cash=-1000.0, units=20.0),
+            Action(side="hold"),
+            _market([100.0, 55.0, 55.0, 55.0]),
+            _cfg(max_leverage=2.0, maintenance_margin_rate=0.10),
+            _FULL_FILL,
+        )
+        assert result.state.done is True
+        assert float(result.state.portfolio[1]) == 0.0
+        assert float(result.state.portfolio[0]) == 100.0
+
+    def test_maintenance_amount_deduction_keeps_a_position_alive(self) -> None:
+        # Same 55.0 mark and 10% rate, but a 50 bracket deduction drops the requirement
+        # to 60, under the 100 equity — so the identical book survives. Pins that
+        # `maintenance_amount` is really threaded through to the engine.
+        result = step_core(
+            _state(cash=-1000.0, units=20.0),
+            Action(side="hold"),
+            _market([100.0, 55.0, 55.0, 55.0]),
+            _cfg(max_leverage=2.0, maintenance_margin_rate=0.10, maintenance_amount=50.0),
+            _FULL_FILL,
+        )
+        assert result.state.done is False
+        assert float(result.state.portfolio[1]) == 20.0
+
+    def test_single_bar_gap_past_maintenance_lands_below_zero_equity(self) -> None:
+        # Deep-tail gap risk: the mark falls 100 → 40 in one bar, jumping clean past the
+        # 50.25 maintenance threshold to negative equity. Still liquidated at that price
+        # and terminal — realistic for a volatile bar, not a bug.
+        result = step_core(
+            _state(cash=-1000.0, units=20.0),
+            Action(side="hold"),
+            _market([100.0, 40.0, 40.0, 40.0]),
+            _cfg(max_leverage=2.0),
+            _FULL_FILL,
+        )
+        assert result.state.done is True
+        assert float(result.state.portfolio[1]) == 0.0
+        assert float(result.state.portfolio[0]) == -200.0
+
+    def test_insolvency_backstop_still_terminates_with_the_maintenance_tier_disabled(self) -> None:
+        # With rate and amount both zero the maintenance requirement is zero for any
+        # notional, so `equity <= 0` is the only trigger left — proving the backstop is
+        # load-bearing rather than shadowed by the new check.
+        cfg = _cfg(max_leverage=2.0, maintenance_margin_rate=0.0, maintenance_amount=0.0)
+        survives = step_core(
+            _state(cash=-1000.0, units=20.0),
+            Action(side="hold"),
+            _market([100.0, 50.125, 50.125, 50.125]),
+            cfg,
+            _FULL_FILL,
+        )
+        assert survives.state.done is False
+        assert float(survives.state.portfolio[1]) == 20.0
+
+        wiped = step_core(
+            _state(cash=-1000.0, units=20.0),
+            Action(side="hold"),
+            _market([100.0, 40.0, 40.0, 40.0]),
+            cfg,
+            _FULL_FILL,
+        )
+        assert wiped.state.done is True
+        assert float(wiped.state.portfolio[0]) == -200.0
+
+    def test_settle_helper_leaves_a_healthy_book_untouched(self) -> None:
+        portfolio = np_asarray([-1000.0, 20.0], dtype=np_float64)
+        assert settle_maintenance_margin(portfolio, 60.0, 0.005, 0.0) is False
+        assert portfolio.tolist() == [-1000.0, 20.0]
+
+    def test_settle_helper_closes_a_book_under_its_requirement(self) -> None:
+        portfolio = np_asarray([-1000.0, 20.0], dtype=np_float64)
+        assert settle_maintenance_margin(portfolio, 50.125, 0.005, 0.0) is True
+        assert portfolio.tolist() == [2.5, 0.0]
+
+    def test_env_reports_the_liquidated_book_through_a_full_step(
+        self,
+        market_data_factory: Callable[..., MarketData],
+    ) -> None:
+        # End-to-end through MarketEnv: buy at the 3.0x cap on 1000 cash (30 units at
+        # 100, cash -2000), then a mark of 66.75 leaves equity 2.50 against a 10.0125
+        # requirement — liquidated with positive equity, and reported as flat.
+        cfg = _cfg(max_leverage=3.0, initial_cash=1000.0)
+        env = MarketEnv(data=market_data_factory(close=[100.0, 100.0, 66.75, 66.75, 66.75]), cfg=cfg)
+        env.reset(seed=1)
+
+        opened = env.step(Action(side="buy", units=100.0, order_type="market"))
+        assert opened.state.units == 30.0
+        assert opened.done is False
+
+        closed = env.step(Action(side="hold"))
+        assert closed.done is True
+        assert closed.state.units == 0.0
+        assert closed.state.cash == pytest.approx(2.5)
+        assert closed.state.equity == pytest.approx(2.5)
+        assert closed.state.equity > 0.0
+        assert closed.state.leverage == 0.0
+
+
 class TestInsolvencyTermination:
     def test_mark_to_market_wipeout_liquidates_and_terminates(
         self,
@@ -317,9 +565,22 @@ class TestInsolvencyTermination:
 class TestNumbaMirrorsAreIdenticalSource:
     """The numba mirrors are hand-copied; pin them so they cannot silently drift."""
 
-    @staticmethod
-    def _body_ast(func: Any) -> str:
+    # A mirror that delegates to another helper has to call that helper's `_jit`
+    # name, so a delegating body can never dump identically without renaming.
+    # Only these exact identifiers are normalized — every other difference,
+    # including any call to a helper not listed here, still shows up as a diff.
+    _JIT_ALIASES = {
+        "_maintenance_margin_jit": "maintenance_margin",
+        "_is_below_maintenance_margin_jit": "is_below_maintenance_margin",
+        "_liquidate_position_jit": "liquidate_position",
+    }
+
+    @classmethod
+    def _body_ast(cls, func: Any) -> str:
         tree = ast.parse(textwrap.dedent(inspect.getsource(func)))
+        for node in ast.walk(tree):
+            if isinstance(node, ast.Name) and node.id in cls._JIT_ALIASES:
+                node.id = cls._JIT_ALIASES[node.id]
         body = tree.body[0].body  # type: ignore[attr-defined]
         first = body[0]
         is_docstring = isinstance(first, ast.Expr) and isinstance(getattr(first.value, "value", None), str)
@@ -330,6 +591,28 @@ class TestNumbaMirrorsAreIdenticalSource:
 
     def test_settle_helper_body_matches_its_numba_mirror(self) -> None:
         assert self._body_ast(settle_insolvency) == self._body_ast(_settle_insolvency_jit.py_func)
+
+    def test_maintenance_margin_body_matches_its_numba_mirror(self) -> None:
+        assert self._body_ast(maintenance_margin) == self._body_ast(_maintenance_margin_jit.py_func)
+
+    def test_maintenance_predicate_body_matches_its_numba_mirror(self) -> None:
+        assert self._body_ast(is_below_maintenance_margin) == self._body_ast(_is_below_maintenance_margin_jit.py_func)
+
+    def test_liquidate_helper_body_matches_its_numba_mirror(self) -> None:
+        assert self._body_ast(liquidate_position) == self._body_ast(_liquidate_position_jit.py_func)
+
+    def test_maintenance_settle_body_matches_its_numba_mirror(self) -> None:
+        assert self._body_ast(settle_maintenance_margin) == self._body_ast(_settle_maintenance_margin_jit.py_func)
+
+    def test_alias_map_only_renames_the_mirrors_it_claims_to(self) -> None:
+        # Guard on the guard: a typo'd alias would silently stop normalizing and the
+        # comparison above would fail loudly, but an alias for a name that no longer
+        # exists would rot unnoticed. Every key must be a real numba mirror.
+        import stock_simulator.core as core_module
+
+        for jit_name, pure_name in self._JIT_ALIASES.items():
+            assert hasattr(core_module, jit_name)
+            assert hasattr(core_module, pure_name)
 
 
 class TestNumbaParity:
@@ -417,6 +700,61 @@ class TestNumbaParity:
         assert py_outputs[4].fills == 1
         assert py_outputs[4].filled_order_slot == 0
         assert py_outputs[4].exec_price == pytest.approx(85.0)
+
+    def test_maintenance_margin_liquidation_is_identical_in_both_engines(self) -> None:
+        # A liquidation driven by the maintenance check, NOT by `equity <= 0`: equity
+        # lands on +2.50 against a 5.0125 requirement. Both engines must produce the
+        # identical liquidated book, bit for bit.
+        cfg = _cfg(max_leverage=2.0)
+        market = _market([100.0, 50.125, 50.125, 50.125])
+        action = Action(side="hold")
+        py_out = step_core(_state(cash=-1000.0, units=20.0), action, market, cfg, _FULL_FILL)
+        nb_out = step_core_numba(_state(cash=-1000.0, units=20.0), action, market, cfg, _FULL_FILL)
+        self._assert_identical(py_out, nb_out)
+        assert py_out.state.done is True
+        assert py_out.state.portfolio.tolist() == [2.5, 0.0]
+
+    def test_fill_bar_maintenance_liquidation_is_identical_in_both_engines(self) -> None:
+        # The other check point: the maintenance call fires on the filling bar.
+        cfg = _cfg(max_leverage=3.0)
+        market = _market([201.0, 700.0, 700.0, 700.0])
+        action = Action(side="buy", units=10.0, order_type="limit", limit_price=300.0)
+        py_out = step_core(_state(cash=1000.0), action, market, cfg, _FULL_FILL)
+        nb_out = step_core_numba(_state(cash=1000.0), action, market, cfg, _FULL_FILL)
+        self._assert_identical(py_out, nb_out)
+        assert py_out.state.done is True
+        assert py_out.state.portfolio.tolist() == [10.0, 0.0]
+
+    def test_custom_maintenance_parameters_are_identical_in_both_engines(self) -> None:
+        # Both new config fields reach `step_core_jit`; a mis-threaded parameter would
+        # leave the numba engine on its defaults and diverge here.
+        cfg = _cfg(max_leverage=2.0, maintenance_margin_rate=0.10, maintenance_amount=50.0)
+        market = _market([100.0, 55.0, 55.0, 55.0])
+        action = Action(side="hold")
+        py_out = step_core(_state(cash=-1000.0, units=20.0), action, market, cfg, _FULL_FILL)
+        nb_out = step_core_numba(_state(cash=-1000.0, units=20.0), action, market, cfg, _FULL_FILL)
+        self._assert_identical(py_out, nb_out)
+        assert py_out.state.done is False
+
+    def test_maintenance_liquidation_through_the_env_is_identical_in_both_engines(
+        self,
+        market_data_factory: Callable[..., MarketData],
+    ) -> None:
+        # Same scenario driven through MarketEnv.step (which reaches the numba engine
+        # via `step_core_numba`). The other call site, `MarketEnv._advance_one_step`,
+        # is covered by test_use_numba_parity.py.
+        closes = [100.0, 100.0, 66.75, 66.75, 66.75]
+        actions = [Action(side="buy", units=100.0, order_type="market"), Action(side="hold")]
+        trajectories = []
+        for use_numba in (False, True):
+            cfg = _cfg(max_leverage=3.0, initial_cash=1000.0, use_numba=use_numba)
+            env = MarketEnv(data=market_data_factory(close=closes), cfg=cfg)
+            env.reset(seed=5)
+            trajectories.append([env.step(action).state for action in actions])
+        for py_state, nb_state in zip(*trajectories, strict=True):
+            assert py_state == nb_state
+        assert trajectories[0][-1].done is True
+        assert trajectories[0][-1].cash == pytest.approx(2.5)
 
     def test_mark_to_market_liquidation_is_identical_in_both_engines(
         self,
