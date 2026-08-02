@@ -23,6 +23,7 @@ class MarketPortal:
     market_arrays: MarketArrays
     observation_window: int
     volume: NDArray[np_float32] | None = None
+    taker_buy_volume: NDArray[np_float32] | None = None
 
     def current_price(self, t: int) -> float:
         return float(self.market_arrays.close[t])
@@ -64,7 +65,8 @@ class MarketPortal:
         Returns
         -------
         MarketWindowContent
-            Window metadata plus per-bar open/high/low/close/volume values.
+            Window metadata plus per-bar open/high/low/close/volume/
+            taker_buy_volume values.
         """
         upper = t + 1
         if start is None and end is None:
@@ -83,6 +85,11 @@ class MarketPortal:
         else:
             volume = tuple(0.0 for _ in range(resolved_end - resolved_start))
 
+        if self.taker_buy_volume is not None:
+            taker_buy_volume = _to_float_tuple(self.taker_buy_volume[resolved_start:resolved_end])
+        else:
+            taker_buy_volume = tuple(0.0 for _ in range(resolved_end - resolved_start))
+
         return MarketWindowContent(
             start=resolved_start,
             end=resolved_end,
@@ -92,4 +99,5 @@ class MarketPortal:
             low=_to_float_tuple(self.market_arrays.low[resolved_start:resolved_end]),
             close=_to_float_tuple(self.market_arrays.close[resolved_start:resolved_end]),
             volume=volume,
+            taker_buy_volume=taker_buy_volume,
         )

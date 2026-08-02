@@ -33,6 +33,7 @@ def _ohlcv_portal(n: int, observation_window: int) -> MarketPortal:
         ),
         observation_window=observation_window,
         volume=(base + 1_000.0).astype(np.float32),
+        taker_buy_volume=(base + 2_000.0).astype(np.float32),
     )
 
 
@@ -107,6 +108,7 @@ class TestWindowContent:
         assert content.low == pytest.approx([57.0, 58.0, 59.0, 60.0])
         assert content.close == pytest.approx([157.0, 158.0, 159.0, 160.0])
         assert content.volume == pytest.approx([1007.0, 1008.0, 1009.0, 1010.0])
+        assert content.taker_buy_volume == pytest.approx([2007.0, 2008.0, 2009.0, 2010.0])
 
     def test_episode_start_clamps_to_zero(self) -> None:
         # t (2) smaller than the observation window (8): start clamps to 0.
@@ -138,6 +140,7 @@ class TestWindowContent:
         assert content.start == content.end == 11
         assert content.close == ()
         assert content.volume == ()
+        assert content.taker_buy_volume == ()
 
     def test_negative_start_clamps_to_zero(self) -> None:
         portal = _ohlcv_portal(n=64, observation_window=4)
@@ -162,4 +165,15 @@ class TestWindowContent:
         assert content.start == 3
         assert content.end == 6
         assert content.volume == (0.0, 0.0, 0.0)
+        assert content.close == pytest.approx([3.0, 4.0, 5.0])
+
+    def test_missing_taker_buy_volume_yields_zero_filled_column(self) -> None:
+        # A portal constructed without a taker_buy_volume array (e.g. CSV-backed
+        # data, which doesn't carry the column) still returns a correctly-sized,
+        # zero-filled taker_buy_volume column.
+        portal = MarketPortal(_arrays([float(i) for i in range(10)]), observation_window=3)
+        content = portal.window_content(t=5)
+        assert content.start == 3
+        assert content.end == 6
+        assert content.taker_buy_volume == (0.0, 0.0, 0.0)
         assert content.close == pytest.approx([3.0, 4.0, 5.0])

@@ -9,8 +9,13 @@ from pandas import read_parquet as pd_read_parquet
 
 _TIMESTAMP_COLUMN = "timestamp"
 _OPEN_TIME_ALIAS = "open_time"
+_TAKER_BUY_VOLUME_COLUMN = "taker_buy_base_volume"
 
 
+# scan-fix(pylint:R0902): 8 attrs is the natural shape of an OHLCV+volume+
+# taker_buy_volume+timestamp+count data container, not accumulated complexity —
+# splitting it would fight the class's purpose, not simplify it.
+# pylint: disable-next=too-many-instance-attributes
 class MarketData:
     """Container with market time series arrays used by the simulator.
 
@@ -18,7 +23,9 @@ class MarketData:
     ----------
     df
         Input frame with columns ``timestamp``, ``open``, ``high``, ``low``,
-        ``close``, and ``volume``.
+        ``close``, and ``volume``. An optional ``taker_buy_base_volume`` column
+        (present on Binance-style kline parquets) is picked up when available;
+        ``taker_buy_volume`` is ``None`` otherwise.
     """
 
     def __init__(self, df: pd_DataFrame):
@@ -28,7 +35,12 @@ class MarketData:
         self.low: NDArray[np_float32] = df["low"].to_numpy(dtype=np_float32)
         self.close: NDArray[np_float32] = df["close"].to_numpy(dtype=np_float32)
         self.volume: NDArray[np_float32] = df["volume"].to_numpy(dtype=np_float32)
+        self.taker_buy_volume: NDArray[np_float32] | None = self._optional_column(df, _TAKER_BUY_VOLUME_COLUMN)
         self.n: int = len(df)
+
+    @staticmethod
+    def _optional_column(df: pd_DataFrame, name: str) -> NDArray[np_float32] | None:
+        return df[name].to_numpy(dtype=np_float32) if name in df.columns else None
 
     @classmethod
     def from_csv(cls, path: str) -> MarketData:
