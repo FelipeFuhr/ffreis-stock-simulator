@@ -8,6 +8,7 @@ from hypothesis import strategies as st
 from pytest import approx as pytest_approx
 
 from stock_simulator.config import GameConfig
+from stock_simulator.core import is_below_maintenance_margin
 from stock_simulator.data import MarketData
 from stock_simulator.env import MarketEnv
 from stock_simulator.recorder import InMemoryRecorder
@@ -81,7 +82,17 @@ def test_engine_invariants(
         assert state.equity == pytest_approx(expected_equity)
         assert observation.equity == pytest_approx(expected_equity)
 
-        assert state.leverage <= cfg.max_leverage or state.equity <= 0.0
+        # `max_leverage` is the INITIAL-margin cap: it bounds what an order may open,
+        # not what an open position may drift to as the mark moves. The invariant that
+        # actually holds on every step is the MAINTENANCE one — a live book is never
+        # carried below its maintenance requirement.
+        notional = abs(state.units) * observation.price
+        assert not is_below_maintenance_margin(
+            state.equity,
+            notional,
+            cfg.maintenance_margin_rate,
+            cfg.maintenance_amount,
+        )
 
         values = (
             state.cash,

@@ -141,18 +141,86 @@ def clip_units_for_leverage(
     return direction * min(allowed, abs(signed_units))
 
 
+def maintenance_margin(notional: float, rate: float, amount: float) -> float:
+    """Margin an already-open position of ``notional`` must keep to stay open.
+
+    ``maintenance_margin = abs(notional) * rate - amount``, floored at zero — the
+    per-bracket formula real exchanges publish (Binance USDⓈ-M futures among them),
+    where ``amount`` is the bracket's cumulative deduction. The shipped default is a
+    documented single-tier approximation, not live exchange data; see
+    :data:`stock_simulator.config.MAINTENANCE_MARGIN_TIERS`.
+
+    This is **not** the initial-margin check. Initial margin (``max_leverage``, applied
+    by :func:`clip_units_for_leverage`) bounds how much exposure an order may OPEN and
+    is evaluated once, at order time. Maintenance margin is a separate, much lower bar
+    re-evaluated on every mark, deciding when an open position is force-closed. The two
+    are independent by design: leverage drifting above ``max_leverage`` between fills is
+    ordinary exchange behavior and does not on its own liquidate anything.
+    """
+    required = abs(notional) * rate - amount
+    return required if required > 0.0 else 0.0
+
+
+def is_below_maintenance_margin(equity: float, notional: float, rate: float, amount: float) -> bool:
+    """Whether the margin balance has fallen under the maintenance requirement.
+
+    ``equity`` is the simulator's mark-to-market equity (cash plus unrealized PnL at
+    the mark), which is exactly what an exchange calls the margin balance; liquidation
+    triggers when it drops below :func:`maintenance_margin`. A flat book has no position
+    to maintain and is never below its requirement whatever its cash balance — a
+    negative flat balance is :func:`settle_insolvency`'s case, not this one.
+    """
+    if notional == 0.0:
+        return False
+    return equity < maintenance_margin(notional, rate, amount)
+
+
+def liquidate_position(portfolio: NDArray[np_float64], price: float) -> None:
+    """Realize the whole position into cash at ``price``, leaving the book flat.
+
+    Equity becomes exactly cash, so it cannot drift further from a stale unit count on
+    later steps. The single closing mechanic behind both liquidation triggers
+    (:func:`settle_maintenance_margin` and :func:`settle_insolvency`) — they differ only
+    in *when* they fire, never in what they do.
+    """
+    portfolio[0] = portfolio[0] + portfolio[1] * price
+    portfolio[1] = 0.0
+
+
+def settle_maintenance_margin(
+    portfolio: NDArray[np_float64],
+    price: float,
+    rate: float,
+    amount: float,
+) -> bool:
+    """Force-close the book when its margin balance is under the maintenance margin.
+
+    The primary liquidation trigger, and the earlier of the two: it fires while equity
+    is still *positive*, mirroring how a real exchange closes an account out with some
+    balance left rather than riding it to zero. Returns whether the position was
+    liquidated, which the caller turns into a terminal step.
+    """
+    equity = portfolio[0] + portfolio[1] * price
+    notional = abs(portfolio[1]) * price
+    if not is_below_maintenance_margin(equity, notional, rate, amount):
+        return False
+    liquidate_position(portfolio, price)
+    return True
+
+
 def settle_insolvency(portfolio: NDArray[np_float64], price: float) -> bool:
     """Force-close the book when equity is non-positive at ``price``.
 
-    Realizes the whole position into cash at ``price`` so equity becomes exactly cash
-    and cannot drift further negative from a stale unit count on later steps. Returns
-    whether the account was insolvent, which the caller turns into a terminal step.
+    Deep-tail backstop behind :func:`settle_maintenance_margin`, kept because a single
+    volatile bar can gap clean past the maintenance threshold and land at or below zero
+    equity in one move — real, and not something the maintenance check can catch.
+    Returns whether the account was insolvent, which the caller turns into a terminal
+    step.
     """
     equity = portfolio[0] + portfolio[1] * price
     if equity > 0.0:
         return False
-    portfolio[0] = equity
-    portfolio[1] = 0.0
+    liquidate_position(portfolio, price)
     return True
 
 
@@ -206,15 +274,38 @@ def step_core(
 
     _apply_action(next_state, action, config)
     fills, filled_order_slot, exec_price = _match_orders(next_state, market_arrays, config, random_draws)
-    # Solvency is checked twice per step, against both ways equity can be wiped out:
-    # a fill on this bar, then the mark-to-market move into the next bar.
-    insolvent_on_fill = settle_insolvency(next_state.portfolio, float(market_arrays.close[state.t]))
+    # Margin is settled twice per step, against both ways equity can move: this bar's
+    # fills, then the mark-to-market move into the next bar. At each point the
+    # maintenance-margin check runs first (it is the sensitive one, and normally fires
+    # with equity still positive) and the insolvency backstop second, for a bar that
+    # gapped clean past the maintenance threshold.
+    fill_price = float(market_arrays.close[state.t])
+    liquidated_on_fill = settle_maintenance_margin(
+        next_state.portfolio,
+        fill_price,
+        config.maintenance_margin_rate,
+        config.maintenance_amount,
+    )
+    insolvent_on_fill = settle_insolvency(next_state.portfolio, fill_price)
 
     next_t = state.t + 1
     if next_t >= market_arrays.n:
         next_t = market_arrays.n - 1
-    insolvent_on_mark = settle_insolvency(next_state.portfolio, float(market_arrays.close[next_t]))
-    done = next_t >= market_arrays.n - 1 or insolvent_on_fill or insolvent_on_mark
+    mark_price = float(market_arrays.close[next_t])
+    liquidated_on_mark = settle_maintenance_margin(
+        next_state.portfolio,
+        mark_price,
+        config.maintenance_margin_rate,
+        config.maintenance_amount,
+    )
+    insolvent_on_mark = settle_insolvency(next_state.portfolio, mark_price)
+    done = (
+        next_t >= market_arrays.n - 1
+        or liquidated_on_fill
+        or insolvent_on_fill
+        or liquidated_on_mark
+        or insolvent_on_mark
+    )
 
     advanced_state = CoreState(
         t=next_t,
@@ -274,13 +365,50 @@ def _clip_units_for_leverage_jit(
 
 
 @njit(cache=True)  # pragma: no cover
+def _maintenance_margin_jit(notional: float, rate: float, amount: float) -> float:
+    # Numba mirror of maintenance_margin — keep both bodies identical.
+    required = abs(notional) * rate - amount
+    return required if required > 0.0 else 0.0
+
+
+@njit(cache=True)  # pragma: no cover
+def _is_below_maintenance_margin_jit(equity: float, notional: float, rate: float, amount: float) -> bool:
+    # Numba mirror of is_below_maintenance_margin — keep both bodies identical.
+    if notional == 0.0:
+        return False
+    return equity < _maintenance_margin_jit(notional, rate, amount)
+
+
+@njit(cache=True)  # pragma: no cover
+def _liquidate_position_jit(portfolio: NDArray[np_float64], price: float) -> None:
+    # Numba mirror of liquidate_position — keep both bodies identical.
+    portfolio[0] = portfolio[0] + portfolio[1] * price
+    portfolio[1] = 0.0
+
+
+@njit(cache=True)  # pragma: no cover
+def _settle_maintenance_margin_jit(
+    portfolio: NDArray[np_float64],
+    price: float,
+    rate: float,
+    amount: float,
+) -> bool:
+    # Numba mirror of settle_maintenance_margin — keep both bodies identical.
+    equity = portfolio[0] + portfolio[1] * price
+    notional = abs(portfolio[1]) * price
+    if not _is_below_maintenance_margin_jit(equity, notional, rate, amount):
+        return False
+    _liquidate_position_jit(portfolio, price)
+    return True
+
+
+@njit(cache=True)  # pragma: no cover
 def _settle_insolvency_jit(portfolio: NDArray[np_float64], price: float) -> bool:
     # Numba mirror of settle_insolvency — keep both bodies identical.
     equity = portfolio[0] + portfolio[1] * price
     if equity > 0.0:
         return False
-    portfolio[0] = equity
-    portfolio[1] = 0.0
+    _liquidate_position_jit(portfolio, price)
     return True
 
 
@@ -311,6 +439,8 @@ def step_core_jit(
     fee_bps: float,
     slippage_bps: float,
     max_leverage: float,
+    maintenance_margin_rate: float,
+    maintenance_amount: float,
 ) -> tuple[
     int,
     bool,
@@ -438,15 +568,32 @@ def step_core_jit(
                 order_active_next[i] = np_int8(0)
                 order_ttl_next[i] = np_int32(0)
 
-    # Mirrors step_core: solvency is settled against this bar's fills, then against
-    # the mark-to-market move into the next bar.
-    insolvent_on_fill = _settle_insolvency_jit(portfolio_next, float(market_close[t]))
+    # Mirrors step_core: margin is settled against this bar's fills, then against the
+    # mark-to-market move into the next bar, maintenance-margin check before the
+    # insolvency backstop at each point.
+    fill_price = float(market_close[t])
+    liquidated_on_fill = _settle_maintenance_margin_jit(
+        portfolio_next,
+        fill_price,
+        maintenance_margin_rate,
+        maintenance_amount,
+    )
+    insolvent_on_fill = _settle_insolvency_jit(portfolio_next, fill_price)
 
     next_t = t + 1
     if next_t >= market_n:
         next_t = market_n - 1
-    insolvent_on_mark = _settle_insolvency_jit(portfolio_next, float(market_close[next_t]))
-    done_out = next_t >= market_n - 1 or insolvent_on_fill or insolvent_on_mark
+    mark_price = float(market_close[next_t])
+    liquidated_on_mark = _settle_maintenance_margin_jit(
+        portfolio_next,
+        mark_price,
+        maintenance_margin_rate,
+        maintenance_amount,
+    )
+    insolvent_on_mark = _settle_insolvency_jit(portfolio_next, mark_price)
+    done_out = (
+        next_t >= market_n - 1 or liquidated_on_fill or insolvent_on_fill or liquidated_on_mark or insolvent_on_mark
+    )
     next_equity = portfolio_next[0] + portfolio_next[1] * float(market_close[next_t])
     equity_delta = next_equity - prev_equity
 
@@ -519,6 +666,8 @@ def step_core_numba(
         fee_bps=config.fee_bps,
         slippage_bps=config.slippage_bps,
         max_leverage=config.max_leverage,
+        maintenance_margin_rate=config.maintenance_margin_rate,
+        maintenance_amount=config.maintenance_amount,
     )
     return CoreStepOutput(
         state=CoreState(

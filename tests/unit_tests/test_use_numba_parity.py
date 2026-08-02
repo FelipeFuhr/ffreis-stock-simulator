@@ -120,6 +120,52 @@ class TestUseNumbaPath:
         assert bool(dones_py[1]) is True
         assert portfolio_py[1][1] == 0.0
 
+    def test_python_and_numba_match_through_a_maintenance_margin_liquidation(
+        self,
+        market_data_factory: Callable[..., MarketData],
+        encode_actions: Callable[[list[Action]], NDArray[np_float64]],
+    ) -> None:
+        # Maintenance-margin liquidation (not `equity <= 0`) driven through step_many,
+        # so `MarketEnv._advance_one_step` — the second step_core_jit call site — is
+        # covered for the two new maintenance parameters. A buy clipped to the 3.0x cap
+        # (30 units at 100, cash -2000), then a mark of 66.75 leaves equity at +2.50
+        # against a 2002.5 * 0.005 = 10.0125 requirement: closed out in profit-side
+        # territory the old backstop would have ridden all the way to zero.
+        closes = [100.0, 100.0, 66.75, 66.75, 66.75, 66.75]
+        encoded = encode_actions(
+            [Action(side="buy", units=100.0, order_type="market")] + [Action(side="hold") for _ in range(4)]
+        )
+
+        def _run(use_numba: bool) -> tuple[NDArray[np_float64], NDArray[np_float64], NDArray[np_bool_]]:
+            cfg = GameConfig(
+                seed=11,
+                use_numba=use_numba,
+                initial_cash=1_000.0,
+                max_leverage=3.0,
+                fee_bps=0.0,
+                slippage_bps=0.0,
+                market_latency_bars=0,
+                partial_fill_min=1.0,
+                partial_fill_max=1.0,
+            )
+            env = MarketEnv(data=market_data_factory(close=closes, spread=0.1), cfg=cfg)
+            env.reset(seed=11)
+            obs, rewards, dones, _ = env.step_many(encoded)
+            return obs["portfolio_vector"], rewards, dones
+
+        portfolio_py, rewards_py, dones_py = _run(use_numba=False)
+        portfolio_nb, rewards_nb, dones_nb = _run(use_numba=True)
+
+        assert portfolio_py.tolist() == portfolio_nb.tolist()
+        assert rewards_py.tolist() == rewards_nb.tolist()
+        assert dones_py.tolist() == dones_nb.tolist()
+        # [cash, units, equity, leverage] on the liquidating step.
+        assert portfolio_py[0][1] == pytest.approx(30.0, rel=1e-12)
+        assert bool(dones_py[1]) is True
+        assert portfolio_py[1][1] == 0.0
+        assert portfolio_py[1][0] == pytest.approx(2.5, rel=1e-12)
+        assert portfolio_py[1][2] > 0.0
+
     @pytest.mark.parametrize("fee_bps", [0.0, 2.0, 10.0])
     def test_fees_apply_consistently(
         self,

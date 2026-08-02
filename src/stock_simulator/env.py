@@ -377,6 +377,8 @@ class MarketEnv:
                 fee_bps=self._cfg.fee_bps,
                 slippage_bps=self._cfg.slippage_bps,
                 max_leverage=self._cfg.max_leverage,
+                maintenance_margin_rate=self._cfg.maintenance_margin_rate,
+                maintenance_amount=self._cfg.maintenance_amount,
             )
             self._core_state = CoreState(
                 t=int(next_t),

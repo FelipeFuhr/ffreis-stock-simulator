@@ -22,9 +22,13 @@ batched `step_many`.
   columns `timestamp, open, high, low, close, volume`.
 - **Configuration** (`GameConfig`, `config.py`) sets engine dynamics and execution
   behavior: `observation_window` (default 64), `max_open_orders`, `initial_cash`,
-  `max_leverage`, `delta_exposure`, `fee_bps`, `slippage_bps`, `market_latency_bars`,
-  `limit_ttl_bars`, `partial_fill_min`/`partial_fill_max`, `shock_prob`/`shock_size_bps`,
-  `use_numba`, and `seed`. Config loads from defaults, then an optional YAML file,
+  `max_leverage`, `maintenance_margin_rate`/`maintenance_amount`, `delta_exposure`,
+  `fee_bps`, `slippage_bps`, `market_latency_bars`, `limit_ttl_bars`,
+  `partial_fill_min`/`partial_fill_max`, `shock_prob`/`shock_size_bps`, `use_numba`,
+  and `seed`. `max_leverage` is the **initial**-margin cap (order-time);
+  `maintenance_margin_rate`/`maintenance_amount` are the separate, far more permissive
+  **maintenance**-margin threshold that force-closes an already-open position — see
+  `AGENTS.md` for the two-tier model. Config loads from defaults, then an optional YAML file,
   then `STOCK_SIM_*` environment overrides (last wins). `stable_hash()` tags
   telemetry with the active config.
 - **Actions** (`Action`, `types.py`): a `side` (`buy`/`sell`/`hold`), `units`, an
