@@ -67,6 +67,11 @@ test-unit: ## Run unit tests
 test-integration: ## Run integration tests
 	uv run --frozen --extra dev --extra api --extra grpc pytest -q tests/integration_tests
 
+.PHONY: coverage-integration
+coverage-integration: ## Run integration tests with coverage gate (mirrors .github/workflows/integration.yml)
+	uv run --frozen --extra dev --extra api --extra grpc pytest -q \
+	  --cov=$(SRC_DIR) --cov-report=term-missing --cov-fail-under=70 tests/integration_tests
+
 .PHONY: test-e2e
 test-e2e: ## Run end-to-end tests
 	uv run --frozen --extra dev --extra api --extra grpc pytest -q tests/e2e_tests

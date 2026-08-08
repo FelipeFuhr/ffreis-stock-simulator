@@ -33,6 +33,7 @@ env/
 .coverage.*
 htmlcov/
 coverage.xml
+.mutmut-cache
 
 # Generated gRPC stubs (generated on demand)
 src/stocksim_grpc/*_pb2.py

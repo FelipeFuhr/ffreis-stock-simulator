@@ -21,7 +21,7 @@ jobs:
     if: ${{ !github.event.pull_request.draft }}
     permissions:
       contents: read
-    uses: FelipeFuhr/ffreis-workflows-python/.github/workflows/python-hypothesis.yml@v1.0.1
+    uses: FelipeFuhr/ffreis-workflows-python/.github/workflows/python-hypothesis.yml@8405bfc6e887b6e1af634a6ed104538ab98d3baf # main (post-#98)
     with:
       python-version: "3.13"
       uv-extras: "dev api grpc"
