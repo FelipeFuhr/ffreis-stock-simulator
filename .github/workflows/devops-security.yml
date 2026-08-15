@@ -41,11 +41,13 @@ jobs:
       contents: read
       actions: read
       security-events: write
-    uses: FelipeFuhr/ffreis-workflows-general/.github/workflows/general-gitleaks.yml@3858e9e74c805067e454740b195372c7195f333b # v1.5.0
+    uses: FelipeFuhr/ffreis-workflows-general/.github/workflows/general-gitleaks.yml@c05b308fe568045ac1c8086436cca5011b809454 # v2.0.0
     with:
       working-directory: "."
       scan-history: true
       upload-sarif: false
+      # public repo: self-hosted runners are structurally unavailable here
+      runner: '["ubuntu-latest"]'
 
   osv:
     needs: changes
@@ -58,10 +60,12 @@ jobs:
       contents: read
       actions: read
       security-events: write
-    uses: FelipeFuhr/ffreis-workflows-general/.github/workflows/general-osv-scanner.yml@v1.2.0
+    uses: FelipeFuhr/ffreis-workflows-general/.github/workflows/general-osv-scanner.yml@c05b308fe568045ac1c8086436cca5011b809454 # v2.0.0
     with:
       working-directory: "."
       upload-sarif: false
+      # public repo: self-hosted runners are structurally unavailable here
+      runner: '["ubuntu-latest"]'
 
   codeql:
     if: ${{ github.event_name != 'pull_request' }}
@@ -69,7 +73,9 @@ jobs:
       actions: read
       contents: read
       security-events: write
-    uses: FelipeFuhr/ffreis-workflows-general/.github/workflows/general-codeql.yml@3858e9e74c805067e454740b195372c7195f333b # v1.5.0
+    uses: FelipeFuhr/ffreis-workflows-general/.github/workflows/general-codeql.yml@c05b308fe568045ac1c8086436cca5011b809454 # v2.0.0
     with:
       languages: "python"
       source-root: "."
+      # public repo: self-hosted runners are structurally unavailable here
+      runner: '["ubuntu-latest"]'

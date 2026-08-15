@@ -21,9 +21,11 @@ jobs:
       actions: read
       security-events: write
       id-token: write
-    uses: FelipeFuhr/ffreis-workflows-general/.github/workflows/general-scorecard.yml@v1.2.0
+    uses: FelipeFuhr/ffreis-workflows-general/.github/workflows/general-scorecard.yml@c05b308fe568045ac1c8086436cca5011b809454 # v2.0.0
     with:
       upload-sarif: true
+      # public repo: self-hosted runners are structurally unavailable here
+      runner: '["ubuntu-latest"]'
 
   stale:
     if: vars.STALE_ENABLED == 'true' && (github.event_name == 'schedule' || github.event_name == 'workflow_dispatch')
@@ -31,17 +33,21 @@ jobs:
       contents: read
       issues: write
       pull-requests: write
-    uses: FelipeFuhr/ffreis-workflows-general/.github/workflows/general-stale.yml@v1.2.0
+    uses: FelipeFuhr/ffreis-workflows-general/.github/workflows/general-stale.yml@c05b308fe568045ac1c8086436cca5011b809454 # v2.0.0
     with:
       only: "both"
+      # public repo: self-hosted runners are structurally unavailable here
+      runner: '["ubuntu-latest"]'
 
   release-please:
     if: vars.RELEASE_PLEASE_ENABLED == 'true' && github.event_name == 'push'
     permissions:
       contents: write
       pull-requests: write
-    uses: FelipeFuhr/ffreis-workflows-general/.github/workflows/general-release-please.yml@v1.2.0
+    uses: FelipeFuhr/ffreis-workflows-general/.github/workflows/general-release-please.yml@c05b308fe568045ac1c8086436cca5011b809454 # v2.0.0
     with:
       target-branch: "main"
+      # public repo: self-hosted runners are structurally unavailable here
+      runner: '["ubuntu-latest"]'
     secrets:
       RELEASE_PLEASE_TOKEN: ${{ secrets.RELEASE_PLEASE_TOKEN }}
