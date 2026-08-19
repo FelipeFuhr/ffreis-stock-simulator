@@ -34,7 +34,11 @@ dev = [
     "pytest>=9.0.3",
     "pytest-asyncio>=0.24.0",
     "pytest-cov>=5.0.0",
-    "mutmut>=2.0.0",
+    # scan-fix(ci:mutation-gap): mutmut 3.x dropped the --paths-to-mutate/
+    # --tests-dir CLI flags this repo's `make mutation-test` and
+    # .github/workflows/mutation.yml (via python-mutation.yml) still invoke —
+    # pin <3 until that reusable workflow migrates to [tool.mutmut] config.
+    "mutmut>=2.4,<3",
     "ruff>=0.6.0",
     "types-PyYAML>=6.0.12.20241230",
 ]
