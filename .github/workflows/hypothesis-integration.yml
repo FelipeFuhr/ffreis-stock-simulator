@@ -21,11 +21,13 @@ jobs:
     if: ${{ !github.event.pull_request.draft }}
     permissions:
       contents: read
-    uses: FelipeFuhr/ffreis-workflows-python/.github/workflows/python-hypothesis.yml@8405bfc6e887b6e1af634a6ed104538ab98d3baf # main (post-#98)
+    uses: FelipeFuhr/ffreis-workflows-python/.github/workflows/python-hypothesis.yml@d501e7feebe90f3e9f0f6a5da4ccf0d0ae6e6aec # v1.5.1
     with:
       python-version: "3.13"
       uv-extras: "dev api grpc"
       test-dir: "tests/integration_tests/test_grpc_parity.py"
+      # public repo: self-hosted runners are structurally unavailable here
+      runner: '["ubuntu-latest"]'
 
   notify-failure:
     needs: [hypothesis]
