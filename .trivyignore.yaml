@@ -7,11 +7,59 @@
 #
 # Reference:
 # https://trivy.dev/latest/docs/configuration/filtering/#by-finding-ids
-vulnerabilities: []
-# Example entry:
-# vulnerabilities:
-#   - id: CVE-2099-0001
-#     paths:
-#       - "usr/lib/x86_64-linux-gnu/libexample.so.1"
-#     statement: "Accepted temporarily until base image digest update lands."
-#     expired_at: "2026-12-31"
+# scan-fix(trivy:base-image-drift): 2026-08-19 Containerfile digest refresh (see the two
+# scan-fix comments there) fixed the fixable findings (quinn-proto in the bundled uv binary,
+# the container/uv toolchain). Everything below has NO available fix as of this date — status
+# is `affected`/`fix_deferred` in Debian's own tracker, or the finding is a vendored copy
+# embedded inside another package (not something this project's own dependency graph controls).
+# Re-run `trivy image` on the next Containerfile touch and drop whatever has since shipped a fix.
+vulnerabilities:
+  # util-linux family (bsdutils, libblkid1, liblastlog2-2, libmount1, libsmartcols1, libuuid1,
+  # login, mount, util-linux) — fix (2.41.5-0+deb13u1) is published upstream but not yet baked
+  # into the current python:3.14-slim digest; will clear on Debian's next trixie-slim rebuild.
+  - id: CVE-2026-53615
+    statement: "Fix published (util-linux 2.41.5-0+deb13u1), not yet in python:3.14-slim's current build. No project code touches libblkid/mount tooling."
+    expired_at: "2026-11-17T00:00:00Z"
+  - id: CVE-2026-41992
+    statement: "gzip: no fix available (Debian status=affected). Base-image package, not invoked by this service."
+    expired_at: "2026-11-17T00:00:00Z"
+  - id: CVE-2026-54369
+    statement: "libacl1: no fix available (Debian status=affected). Base-image package, not invoked by this service."
+    expired_at: "2026-11-17T00:00:00Z"
+  - id: CVE-2025-69720
+    statement: "ncurses/libtinfo6/libncursesw6: no fix available (Debian status=affected). Base-image package, not invoked by this service."
+    expired_at: "2026-11-17T00:00:00Z"
+  # perl-base — 8 CVEs, all no-fix-available (affected/fix_deferred) in Debian's tracker. This
+  # service is Python/FastAPI/gRPC only; perl is never invoked.
+  - id: CVE-2026-13221
+    statement: "perl-base: no fix available (Debian status=affected). perl is a base-image package, never invoked by this Python service."
+    expired_at: "2026-11-17T00:00:00Z"
+  - id: CVE-2026-42496
+    statement: "perl-Archive-Tar: fix deferred upstream. perl is a base-image package, never invoked by this Python service."
+    expired_at: "2026-11-17T00:00:00Z"
+  - id: CVE-2026-57433
+    statement: "perl Storable: no fix available (Debian status=affected). perl is a base-image package, never invoked by this Python service."
+    expired_at: "2026-11-17T00:00:00Z"
+  - id: CVE-2026-8376
+    statement: "perl regex heap overflow (32-bit builds only; this image is amd64/arm64). No fix available. perl is never invoked by this Python service."
+    expired_at: "2026-11-17T00:00:00Z"
+  - id: CVE-2026-42497
+    statement: "perl-Archive-Tar: fix deferred upstream. perl is a base-image package, never invoked by this Python service."
+    expired_at: "2026-11-17T00:00:00Z"
+  - id: CVE-2026-48962
+    statement: "perl-IO-Compress: no fix available (Debian status=affected). perl is a base-image package, never invoked by this Python service."
+    expired_at: "2026-11-17T00:00:00Z"
+  - id: CVE-2026-57432
+    statement: "perl pack/unpack info disclosure: no fix available (Debian status=affected). perl is a base-image package, never invoked by this Python service."
+    expired_at: "2026-11-17T00:00:00Z"
+  - id: CVE-2026-9538
+    statement: "perl-Archive-Tar DoS: fix deferred upstream. perl is a base-image package, never invoked by this Python service."
+    expired_at: "2026-11-17T00:00:00Z"
+  # Vendored copies embedded inside another package's bundled wheel — not an independently
+  # installed/upgradable dependency of this project (absent from pyproject.toml/uv.lock).
+  - id: GHSA-6v7p-g79w-8964
+    statement: "msgpack: vendored copy inside pip's bundled wheel (pip/_vendor/msgpack), not a project dependency — upgrades with pip's own release cadence."
+    expired_at: "2026-11-17T00:00:00Z"
+  - id: CVE-2025-47273
+    statement: "setuptools: embedded/vendored copy, not an installed project dependency (absent from pyproject.toml/uv.lock)."
+    expired_at: "2026-11-17T00:00:00Z"
