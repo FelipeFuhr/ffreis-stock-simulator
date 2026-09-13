@@ -1,0 +1,138 @@
+{
+  "source": "AGENTS.md",
+  "generated_by": "chore/instruction-split (manual, mechanical split of AGENTS.md into lazy-loaded rules/reference)",
+  "sections": [
+    {
+      "heading": "## Non-obvious facts",
+      "destination": "AGENTS.md",
+      "type": "heading",
+      "note": "This H2 covered 18 unrelated bullets; the heading text itself now lives only in the routing table below (verbatim, as a table row) and each bullet was split into its own topic file — see the following entries."
+    },
+    {
+      "heading": "- **Simulation is deterministic.**",
+      "destination": ".claude/reference/determinism.md",
+      "type": "reference",
+      "bytes": 191
+    },
+    {
+      "heading": "- **Episodes can start at an arbitrary bar via `reset(start_t=...)`.**",
+      "destination": ".claude/rules/reset-start-t.md",
+      "type": "rule",
+      "bytes": 1230
+    },
+    {
+      "heading": "- **Margin is TWO-TIER, exactly as on a real exchange — don't conflate the tiers.**",
+      "destination": ".claude/rules/margin-and-leverage.md",
+      "type": "rule",
+      "bytes": 7296
+    },
+    {
+      "heading": "- **`max_leverage` is ENFORCED at fill time — this changed pre-existing behavior.**",
+      "destination": ".claude/rules/margin-and-leverage.md",
+      "type": "rule",
+      "bytes": 7296
+    },
+    {
+      "heading": "- **Episodes terminate on liquidation, not only at end of data.**",
+      "destination": ".claude/rules/margin-and-leverage.md",
+      "type": "rule",
+      "bytes": 7296
+    },
+    {
+      "heading": "- **Both engines implement margin identically — keep them in sync.**",
+      "destination": ".claude/rules/margin-and-leverage.md",
+      "type": "rule",
+      "bytes": 7296
+    },
+    {
+      "heading": "- **Reported `leverage` is always finite.**",
+      "destination": ".claude/rules/margin-and-leverage.md",
+      "type": "rule",
+      "bytes": 7296
+    },
+    {
+      "heading": "- **Feature vector shape is 11 features.**",
+      "destination": ".claude/rules/feature-vector-shape.md",
+      "type": "rule",
+      "bytes": 294
+    },
+    {
+      "heading": "- **Generated gRPC stubs in `src/stocksim_grpc/` — DO NOT EDIT.**",
+      "destination": ".claude/rules/grpc-generated-stubs.md",
+      "type": "rule",
+      "bytes": 477
+    },
+    {
+      "heading": "- **Replay format is `RecordedStep` via the `Recorder` port (`recorder.py`).**",
+      "destination": ".claude/rules/trace-and-replay.md",
+      "type": "rule",
+      "bytes": 2769
+    },
+    {
+      "heading": "- **`StepTraceRow.filled_order_slot`/`.exec_price` (N9).**",
+      "destination": ".claude/rules/trace-and-replay.md",
+      "type": "rule",
+      "bytes": 2769
+    },
+    {
+      "heading": "- **`STOCK_SIM_TRACE_JSONL` (N10, `trace_writer.py`).**",
+      "destination": ".claude/rules/trace-and-replay.md",
+      "type": "rule",
+      "bytes": 2769
+    },
+    {
+      "heading": "- **Both HTTP and gRPC are production transports**",
+      "destination": ".claude/reference/transports-and-make-targets.md",
+      "type": "reference",
+      "bytes": 250
+    },
+    {
+      "heading": "- **Required make targets** (called by integration-hub)",
+      "destination": ".claude/reference/transports-and-make-targets.md",
+      "type": "reference",
+      "bytes": 250
+    },
+    {
+      "heading": "- **Coverage minimum 90%**",
+      "destination": ".claude/reference/coverage-requirements.md",
+      "type": "reference",
+      "bytes": 1045
+    },
+    {
+      "heading": "- **Integration coverage floor is 70%, just under the fleet's 75% aspiration.**",
+      "destination": ".claude/reference/coverage-requirements.md",
+      "type": "reference",
+      "bytes": 1045
+    },
+    {
+      "heading": "- **`mutmut` is pinned `>=2.4,<3`**",
+      "destination": ".claude/rules/mutmut-pin.md",
+      "type": "rule",
+      "bytes": 442
+    },
+    {
+      "heading": "- **`uv.lock` is required**",
+      "destination": ".claude/reference/uv-lock.md",
+      "type": "reference",
+      "bytes": 86
+    },
+    {
+      "heading": "## Structure",
+      "destination": ".claude/reference/structure.md",
+      "type": "reference",
+      "bytes": 198
+    },
+    {
+      "heading": "## Build/test",
+      "destination": ".claude/reference/build-and-test.md",
+      "type": "reference",
+      "bytes": 1201
+    },
+    {
+      "heading": "## Keeping this file current",
+      "destination": ".claude/reference/keeping-this-file-current.md",
+      "type": "reference",
+      "bytes": 297
+    }
+  ]
+}

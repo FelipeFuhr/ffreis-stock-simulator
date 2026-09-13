@@ -41,6 +41,10 @@ fmt: ## Format code in place (ruff format)
 lint: ## Run Ruff checks
 	uv run --frozen --extra dev --extra api --extra grpc ruff check src tests benchmarks examples
 
+.PHONY: lint-instructions
+lint-instructions: ## Verify the split AGENTS.md rules/reference files stay consistent
+	bash scripts/check-instructions.sh
+
 .PHONY: validate
 validate: ## Static type checking (mypy); alias for typecheck
 	uv run --frozen --extra dev --extra api --extra grpc mypy --config-file pyproject.toml src tests benchmarks
@@ -150,7 +154,7 @@ lefthook-run: lefthook-bootstrap ## Run all hooks locally (pre-commit + commit-m
 lefthook: lefthook-bootstrap lefthook-install lefthook-run ## Install hooks and run them
 
 .PHONY: ci
-ci: grpc-check openapi-check lint typecheck test ## Full CI checks
+ci: grpc-check openapi-check lint typecheck lint-instructions test ## Full CI checks
 
 # ── Standard quality-system targets ──────────────────────────────────────────
 SRC_DIR  ?= src
