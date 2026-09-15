@@ -1,0 +1,15 @@
+# Grype ignore policy.
+#
+# Keep this file small and time-bound — prefer fixing over ignoring. The container-vulnerability
+# scan job also passes `--ignore-states wont-fix,not-fixed` (see .github/workflows/grype.yml),
+# which auto-suppresses the large surface of Debian trixie base-OS CVEs that have no available
+# fix (Debian's own tracker marks them wont-fix/not-fixed — nothing a Containerfile change can
+# resolve). This file is only for the rare case of a `fixed`-state finding that still can't be
+# taken right now for a documented, deliberate reason.
+ignore:
+  - vulnerability: CVE-2026-15308
+    reason: >-
+      Fixed only in Python 3.15.0; this image's uv-managed interpreter is 3.13 (see
+      container/Containerfile). Bumping to 3.15 is a deliberate major-version migration —
+      numba/llvmlite/pyarrow/grpcio compatibility needs verifying first — out of scope for
+      this CI-fix PR. Revisit once the ML/gRPC dependency stack confirms 3.15 support.
