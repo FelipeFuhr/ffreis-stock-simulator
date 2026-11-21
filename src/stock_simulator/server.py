@@ -1,7 +1,10 @@
 from __future__ import annotations
 
+from asyncio import Lock as AsyncioLock
+from collections.abc import Callable
 from importlib import import_module as importlib_import_module
 from os import getenv as os_getenv
+from time import monotonic
 from types import ModuleType
 from typing import TYPE_CHECKING, Literal, Protocol, cast
 
@@ -16,6 +19,17 @@ from .config import GameConfig
 from .data import MarketData
 from .env import MarketEnv
 from .types import EnvStateModel, MarketWindowViewHandleModel, ObservationModel, StepTraceRowModel
+
+#: Callers that never send `session_id` (legacy scripts, curl, other-language
+#: clients) all land here and share state exactly as before this change --
+#: no regression for them, but no isolation either. Every `SimulatorClient`
+#: in this fleet should be sending a real, unique session_id instead.
+DEFAULT_SESSION_ID = "default"
+
+#: A session with no request in this long is evicted on the next request to
+#: ANY session -- bounds memory growth across many short eval/train runs
+#: without needing a background sweep task.
+SESSION_IDLE_TIMEOUT_S = 60.0 * 30
 
 if TYPE_CHECKING:
     from fastapi import FastAPI
@@ -93,6 +107,7 @@ class ResetRequest(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
     seed: int | None = None
+    session_id: str = DEFAULT_SESSION_ID
 
 
 class ResetResponse(BaseModel):
@@ -130,6 +145,7 @@ class StepManyRequest(BaseModel):
 
     actions: list[EncodedActionModel]
     include_trace: bool = False
+    session_id: str = DEFAULT_SESSION_ID
 
 
 class StepManyResponse(BaseModel):
@@ -144,13 +160,57 @@ class StepManyResponse(BaseModel):
 
 
 class RuntimeState:
-    """Mutable process-local runtime state for the FastAPI service."""
+    """Mutable process-local runtime state for the FastAPI service.
+
+    One `MarketEnv` per `session_id`, built from the same shared, read-only
+    `MarketData`/`GameConfig` -- the market arrays are never mutated, only
+    read, so sharing them across sessions is safe; each session keeps its
+    own independent core state, RNG, and portfolio. Without this split, two
+    concurrent callers (two training/eval runs against the same process)
+    silently interleave resets and steps: one client's `/v1/reset` zeroes
+    another's in-flight portfolio, and the two share one `t`. The failure
+    mode is not an error -- both clients keep getting plausible-looking
+    responses, just wrong ones. See
+    `stock-rl-agent-repo/docs/incident-simulator-session-isolation.md`.
+    """
 
     def __init__(self) -> None:
         self.engine_enabled = _as_bool(os_getenv("ENGINE_ENABLED"), default=True)
         self.engine_ready = False
         self.engine_error: str | None = None
-        self.env: MarketEnv | None = None
+        self._env_factory: Callable[[], MarketEnv] | None = None
+        self._sessions: dict[str, MarketEnv] = {}
+        self._session_locks: dict[str, AsyncioLock] = {}
+        self._session_last_access: dict[str, float] = {}
+
+    def set_env_factory(self, factory: Callable[[], MarketEnv]) -> None:
+        """Set the factory every session's fresh `MarketEnv` is built from."""
+        self._env_factory = factory
+
+    def require_session(self, session_id: str) -> MarketEnv:
+        """Return `session_id`'s `MarketEnv`, creating it fresh on first use."""
+        if self._env_factory is None:
+            raise RuntimeError("engine is not available")
+        self._evict_idle_sessions()
+        env = self._sessions.get(session_id)
+        if env is None:
+            env = self._env_factory()
+            self._sessions[session_id] = env
+            self._session_locks[session_id] = AsyncioLock()
+        self._session_last_access[session_id] = monotonic()
+        return env
+
+    def session_lock(self, session_id: str) -> AsyncioLock:
+        """Lock serializing requests for one session (not across sessions)."""
+        return self._session_locks[session_id]
+
+    def _evict_idle_sessions(self) -> None:
+        now = monotonic()
+        stale = [sid for sid, last in self._session_last_access.items() if now - last > SESSION_IDLE_TIMEOUT_S]
+        for sid in stale:
+            self._sessions.pop(sid, None)
+            self._session_locks.pop(sid, None)
+            self._session_last_access.pop(sid, None)
 
 
 def _as_bool(value: str | None, default: bool) -> bool:
@@ -160,15 +220,21 @@ def _as_bool(value: str | None, default: bool) -> bool:
     return value.strip().lower() in {"1", "true", "t", "yes", "y", "on"}
 
 
-def _load_engine() -> MarketEnv:
-    """Construct a simulator instance from environment configuration."""
+def _load_engine_factory() -> Callable[[], MarketEnv]:
+    """Build the per-session env factory from environment configuration.
+
+    Loads `MarketData`/`GameConfig` once (shared, read-only, across every
+    session) and returns a callable that builds one fresh, independent
+    `MarketEnv` per call -- `RuntimeState.require_session` calls it exactly
+    once per new `session_id`.
+    """
     market_data_csv = os_getenv("MARKET_DATA_CSV")
     if not market_data_csv:
         raise ValueError("MARKET_DATA_CSV must be set when ENGINE_ENABLED=true")
     market_data = MarketData.from_csv(market_data_csv)
     config_yaml = os_getenv("STOCK_SIM_CONFIG_YAML")
     config = GameConfig.load(yaml_path=config_yaml)
-    return MarketEnv(data=market_data, cfg=config)
+    return lambda: MarketEnv(data=market_data, cfg=config)
 
 
 def _build_actions_matrix(
@@ -253,19 +319,20 @@ def create_app() -> FastAPI:
             runtime.engine_ready = True
             return
         try:
-            runtime.env = _load_engine()
+            runtime.set_env_factory(_load_engine_factory())
             runtime.engine_ready = True
         except Exception as exc:  # pragma: no cover
             runtime.engine_ready = False
             runtime.engine_error = str(exc)
 
-    def require_env() -> MarketEnv:
-        if runtime.env is None:
+    def require_session(session_id: str) -> MarketEnv:
+        try:
+            return runtime.require_session(session_id)
+        except RuntimeError as exc:
             raise http_exception_cls(
                 status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
-                detail="engine is not available",
-            )
-        return runtime.env
+                detail=str(exc),
+            ) from exc
 
     @app.get("/healthz", response_model=HealthzResponse)
     async def healthz() -> HealthzResponse:
@@ -291,27 +358,30 @@ def create_app() -> FastAPI:
 
     @app.post("/v1/reset", response_model=ResetResponse)
     async def reset(payload: ResetRequest) -> ResetResponse:
-        env = require_env()
-        state = env.reset(seed=payload.seed)
+        env = require_session(payload.session_id)
+        async with runtime.session_lock(payload.session_id):
+            state = env.reset(seed=payload.seed)
         return ResetResponse(state=EnvStateModel.from_dataclass(state))
 
     @app.get("/v1/observe", response_model=ObserveResponse)
-    async def observe() -> ObserveResponse:
-        env = require_env()
-        observation = env.observe()
+    async def observe(session_id: str = DEFAULT_SESSION_ID) -> ObserveResponse:
+        env = require_session(session_id)
+        async with runtime.session_lock(session_id):
+            observation = env.observe()
         return ObserveResponse(observation=ObservationModel.from_dataclass(observation))
 
     @app.post("/v1/step_many", response_model=StepManyResponse)
     async def step_many(payload: StepManyRequest) -> StepManyResponse:
-        env = require_env()
+        env = require_session(payload.session_id)
         if not payload.actions:
             return StepManyResponse(observations=[], rewards=[], dones=[], trace=[])
         actions_matrix = _build_actions_matrix(payload.actions, http_exception_cls, status.HTTP_400_BAD_REQUEST)
         try:
-            observations, rewards, dones, trace = env.step_many(
-                actions_matrix,
-                include_trace=payload.include_trace,
-            )
+            async with runtime.session_lock(payload.session_id):
+                observations, rewards, dones, trace = env.step_many(
+                    actions_matrix,
+                    include_trace=payload.include_trace,
+                )
         except ValueError as exc:
             raise http_exception_cls(status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc)) from exc
         return _build_step_many_response(observations, rewards, dones, trace)
